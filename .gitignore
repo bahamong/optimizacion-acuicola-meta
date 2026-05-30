@@ -1,0 +1,50 @@
+# ─────────────── Dependencias ───────────────
+node_modules/
+venv/
+.venv/
+env/
+ENV/
+
+# ─────────────── Python ───────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ─────────────── Variables de entorno ───────────────
+.env
+.env.*
+!.env.example
+
+# ─────────────── Base de datos (generada en runtime) ───────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ─────────────── Build / distribución ───────────────
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# ─────────────── Carpeta duplicada (copia del proyecto en la raíz) ───────────────
+proyecto/
+
+# ─────────────── Editor / Sistema operativo ───────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─────────────── Claude Code (configuración local de la máquina) ───────────────
+.claude/settings.local.json
+
+# ─────────────── Logs ───────────────
+*.log
+npm-debug.log*
