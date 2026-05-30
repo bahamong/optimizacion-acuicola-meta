@@ -1,10 +1,9 @@
 import './Sidebar.css'
 
 const ITEMS = [
-  { id: 'datos',        icono: '🗄️', label: 'Datos de la Red' },
-  { id: 'mapa',         icono: '🗺️', label: 'Visualización' },
-  { id: 'evaluar',      icono: '📊', label: 'Evaluar' },
-  { id: 'sensibilidad', icono: '🔬', label: 'Sensibilidad' },
+  { id: 'datos',   icono: '🗄️', label: 'Datos de la Red' },
+  { id: 'mapa',    icono: '🗺️', label: 'Visualización'   },
+  { id: 'evaluar', icono: '📊', label: 'Evaluar'          },
 ]
 
 export default function Sidebar({ vistaActual, onCambiar, sincronizado }) {

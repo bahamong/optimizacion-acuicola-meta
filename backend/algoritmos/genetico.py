@@ -151,8 +151,8 @@ class AlgoritmoGenetico:
         )
         poblacion = self.toolbox.population(n=config.AG_POBLACION)
 
-        # Estadísticas para registrar convergencia
-        stats = tools.Statistics(lambda ind: ind.fitness.values)
+        # Estadísticas — extraer [0] porque fitness.values es una tupla (ganancia,)
+        stats = tools.Statistics(lambda ind: ind.fitness.values[0])
         stats.register("max", max)
         stats.register("avg", lambda vals: sum(vals) / len(vals))
 

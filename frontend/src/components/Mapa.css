@@ -1,97 +1,335 @@
+/* ── Contenedor del mapa ─────────────────────────────────────────────────── */
 .mapa-wrapper {
   position: relative;
   width: 100%;
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.12);
 }
 
 .mapa-leaflet {
   width: 100%;
-  height: 520px;
-  background: #e8edf2;
+  height: 580px;
 }
 
-/* Leyenda posicionada sobre el mapa */
-.mapa-leyenda {
+/* ── Barra de progreso OSRM ──────────────────────────────────────────────── */
+.mapa-progreso {
   position: absolute;
-  bottom: 28px;
-  right: 10px;
-  z-index: 1000;
-  background: rgba(255, 255, 255, 0.95);
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
-  font-size: 0.78rem;
-  min-width: 160px;
-  backdrop-filter: blur(4px);
-}
-
-.leyenda-titulo {
-  font-weight: 700;
-  font-size: 0.75rem;
-  color: #475569;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 0.4rem;
-}
-
-.leyenda-fila {
+  top: 0; left: 0; right: 0;
+  z-index: 1200;
+  background: rgba(255,255,255,0.95);
+  padding: 0.5rem 1rem;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  margin-bottom: 0.3rem;
-  color: #334155;
+  gap: 0.8rem;
+  font-size: 0.78rem;
+  color: #475569;
+  font-weight: 500;
+  border-bottom: 1px solid #e2e8f0;
 }
 
-.leyenda-punto {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 1.5px solid #1e293b;
+.progreso-barra {
+  height: 4px;
+  background: linear-gradient(90deg, #6366f1, #22c55e);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  min-width: 4px;
+}
+
+/* ── Panel de edición (overlay sobre el mapa) ────────────────────────────── */
+.mapa-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1100;
+  width: 290px;
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.22);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e2e8f0;
+}
+
+.panel-cabecera {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem 0.7rem;
+  border-bottom: 1px solid #f1f5f9;
   flex-shrink: 0;
 }
 
-.leyenda-linea {
+.panel-tipo {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 20px;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+.panel-tipo.tipo-origen  { background: #fee2e2; color: #b91c1c; }
+.panel-tipo.tipo-acopio  { background: #fef9c3; color: #a16207; }
+.panel-tipo.tipo-destino { background: #dcfce7; color: #166534; }
+.panel-tipo.tipo-ruta    { background: #ede9fe; color: #6d28d9; }
+
+.panel-titulo {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #1e293b;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel-cerrar {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #94a3b8;
+  font-size: 1rem;
+  padding: 2px 4px;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+.panel-cerrar:hover { background: #f1f5f9; color: #334155; }
+
+.panel-cuerpo {
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow-y: auto;
+}
+
+/* Campo de formulario */
+.pf {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.pf label,
+.pf-label-sec {
+  font-size: 0.73rem;
+  font-weight: 600;
+  color: #475569;
+}
+.pf-label-sec { margin-bottom: 0.3rem; }
+.pf-hint { font-size: 0.68rem; color: #94a3b8; }
+.pf-row { display: flex; align-items: center; gap: 0.4rem; }
+.pf-hint-inline { font-size: 0.68rem; color: #94a3b8; white-space: nowrap; }
+
+.pf input[type="text"],
+.pf input[type="number"] {
+  padding: 0.4rem 0.6rem;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.83rem;
+  color: #1e293b;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.12s;
+}
+.pf input[type="text"]:focus,
+.pf input[type="number"]:focus { border-color: #6366f1; }
+
+.pf input[type="range"] {
+  width: 100%;
+  accent-color: #6366f1;
+  margin-top: 0.15rem;
+}
+
+/* Calidad acopio */
+.pf-calidad .calidad-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  color: #475569;
+}
+.calidad-badge {
+  padding: 0.35rem 0.7rem;
+  border-radius: 6px;
+  font-size: 0.73rem;
+  font-weight: 600;
+  margin-top: 0.3rem;
+}
+.calidad-badge.ok   { background: #dcfce7; color: #166534; }
+.calidad-badge.warn { background: #fef9c3; color: #a16207; }
+.calidad-badge.mal  { background: #fee2e2; color: #b91c1c; }
+
+/* Situaciones de ruta */
+.situaciones-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+.sit-btn {
+  padding: 0.45rem 0.5rem;
+  border-radius: 7px;
+  border: 1.5px solid #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.73rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.12s;
+  line-height: 1.3;
+}
+.sit-btn:hover { border-color: var(--sit-color, #6366f1); }
+.sit-btn.activo {
+  border-color: var(--sit-color, #6366f1);
+  background: color-mix(in srgb, var(--sit-color, #6366f1) 10%, white);
+  font-weight: 700;
+}
+
+.bloqueo-aviso {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 0.7rem;
+  font-size: 0.78rem;
+  color: #b91c1c;
+  margin-top: 0.5rem;
+}
+
+/* Pie del panel */
+.panel-pie {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.7rem 1rem;
+  border-top: 1px solid #f1f5f9;
+  flex-shrink: 0;
+}
+.panel-btn-sec {
+  flex: 1;
+  padding: 0.45rem;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.panel-btn-sec:hover { background: #e2e8f0; }
+.panel-btn-prim {
+  flex: 2;
+  padding: 0.45rem;
+  border: none;
+  border-radius: 7px;
+  background: #6366f1;
+  color: white;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.panel-btn-prim:hover { background: #4f46e5; }
+
+/* ── Leyenda ─────────────────────────────────────────────────────────────── */
+.mapa-leyenda {
+  position: absolute;
+  bottom: 28px;
+  left: 10px;
+  z-index: 1000;
+  background: rgba(255,255,255,0.96);
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.14);
+  font-size: 0.74rem;
+  min-width: 175px;
+  backdrop-filter: blur(4px);
+}
+
+.ley-titulo {
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.35rem;
+}
+
+.ley-fila {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.25rem;
+  color: #334155;
+  font-size: 0.73rem;
+}
+
+.ley-punto {
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0,0,0,0.2);
+  flex-shrink: 0;
+}
+
+.ley-linea {
   display: inline-block;
-  width: 20px;
-  height: 3px;
+  width: 22px; height: 3px;
   border-radius: 2px;
   flex-shrink: 0;
 }
 
-/* Tooltips */
-.tooltip-nodo,
-.tooltip-arista {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 0.8rem;
-  min-width: 160px;
-}
-
-.tooltip-nodo strong,
-.tooltip-arista strong {
-  font-size: 0.85rem;
-  color: #1e293b;
-  margin-bottom: 2px;
-}
-
-.tooltip-nodo span,
-.tooltip-arista span {
-  color: #475569;
-}
-
-.badge {
+.ley-linea-dash {
   display: inline-block;
-  padding: 1px 6px;
-  border-radius: 10px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  background: #e2e8f0;
-  color: #334155;
-  margin-bottom: 2px;
-  width: fit-content;
+  width: 22px; height: 0;
+  border-top: 2.5px dashed;
+  flex-shrink: 0;
+}
+
+.ley-nota {
+  font-size: 0.68rem;
+  color: #475569;
+  background: #f8fafc;
+  border-radius: 5px;
+  padding: 0.4rem 0.5rem;
+  margin-top: 0.5rem;
+  line-height: 1.5;
+}
+
+.ley-hint {
+  font-size: 0.65rem;
+  color: #94a3b8;
+  margin-top: 0.4rem;
+  font-style: italic;
+}
+
+/* ── Tooltips ────────────────────────────────────────────────────────────── */
+.tt-nodo, .tt-arista {
+  font-size: 0.78rem !important;
+}
+
+.tt-nodo strong,
+.tt-arista strong {
+  display: block;
+  font-size: 0.82rem;
+  color: #1e293b;
+  margin-bottom: 3px;
+}
+
+.tt-nodo span,
+.tt-arista span {
+  display: block;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.tt-bloqueada { color: #b91c1c !important; font-weight: 600; }
+.tt-hint { color: #94a3b8 !important; font-style: italic; font-size: 0.68rem; }
+
+/* Leaflet tooltip override */
+.leaflet-tooltip.tt-nodo,
+.leaflet-tooltip.tt-arista {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  min-width: 150px;
 }

@@ -7,11 +7,22 @@
   color: #475569; font-weight: 500;
 }
 .mapa-stats span { display: flex; align-items: center; gap: 0.3rem; }
+.stats-hint { color: #94a3b8 !important; font-style: italic; font-size: 0.72rem; }
 
 .mapa-ruta-activa {
   background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 7px;
   padding: 0.5rem 1rem; font-size: 0.82rem; color: #4338ca;
   font-weight: 600; font-family: monospace;
+}
+
+.mapa-aviso-flujo {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 0.65rem 1rem;
+  font-size: 0.82rem;
+  color: #1d4ed8;
+  line-height: 1.5;
 }
 
 .mapa-vacio {
