@@ -59,6 +59,20 @@ CREATE TABLE IF NOT EXISTS escenarios_historial (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ── Restricción única en aristas (por si la tabla ya existía sin ella) ───────
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'aristas_id_origen_id_destino_key'
+          AND conrelid = 'aristas'::regclass
+    ) THEN
+        ALTER TABLE aristas
+            ADD CONSTRAINT aristas_id_origen_id_destino_key
+            UNIQUE (id_origen, id_destino);
+    END IF;
+END $$;
+
 -- ── Tabla de caché de rutas OSRM ─────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS rutas_osrm_cache (
     id SERIAL PRIMARY KEY,
