@@ -2,203 +2,178 @@
 Datos por defecto de la red logística "Acuícola Real del Meta"
 y funciones auxiliares de conversión.
 
+Toda la red opera ÚNICAMENTE en los departamentos de Cundinamarca y Meta.
 Red: 6 orígenes + 10 acopios + 25 supermercados = 41 nodos
-     Oferta total: 595 ton | Demanda total: 307 ton
+
+Las distancias de las rutas se calculan automáticamente (haversine × factor vial)
+y el costo de transporte se deriva de la distancia. El usuario no las edita.
+La tasa de merma de un acopio se deriva de su tasa de calidad.
 """
+
+import math
 
 from models.arista import Arista
 from models.grafo import GrafoRed
 from models.nodo import Nodo, TipoNodo
 
+# Factor que aproxima la distancia por carretera a partir de la distancia recta
+FACTOR_VIAL = 1.30
+# Costo de transporte: base + proporcional a la distancia ($/ton)
+COSTO_BASE = 2.0
+COSTO_POR_KM = 0.08
+
+
+def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Distancia en km entre dos coordenadas (fórmula de haversine)."""
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2
+    )
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def distancia_vial(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Distancia aproximada por carretera (km), redondeada."""
+    return round(haversine_km(lat1, lng1, lat2, lng2) * FACTOR_VIAL, 1)
+
+
+def costo_desde_distancia(distancia_km: float) -> float:
+    """Costo de transporte ($/ton) derivado de la distancia."""
+    return round(COSTO_BASE + distancia_km * COSTO_POR_KM, 2)
+
+
+def merma_desde_calidad(tasa_calidad: float) -> float:
+    """
+    La merma de un acopio se deriva de su calidad:
+    menos calidad → más merma. Calidad 1.0 → 0% merma; calidad 0.0 → 30% merma.
+    """
+    return round((1.0 - max(0.0, min(1.0, tasa_calidad))) * 0.30, 4)
+
 
 def construir_red_acuicola() -> GrafoRed:
     """
-    Construye y retorna el grafo completo de Acuícola Real del Meta
-    con datos geográficos y logísticos reales de Colombia.
+    Construye la red de Acuícola Real del Meta en Cundinamarca y Meta.
+    Distancias y costos de las aristas se calculan automáticamente.
     """
     grafo = GrafoRed()
 
-    # ── ORÍGENES (6 estaciones de producción) ────────────────────────────────
+    # ── ORÍGENES (6 estaciones: 3 Meta, 3 Cundinamarca) ───────────────────────
     origenes = [
         Nodo("O1", TipoNodo.ORIGEN, "Estación Puerto López", "Puerto López", "Meta",
              4.0854, -72.9508, 120, oferta=120),
         Nodo("O2", TipoNodo.ORIGEN, "Estación Puerto Gaitán", "Puerto Gaitán", "Meta",
-             4.3147, -72.0806, 100, oferta=100),
+             4.3112, -72.0825, 100, oferta=100),
         Nodo("O3", TipoNodo.ORIGEN, "Estación San Martín", "San Martín", "Meta",
              3.6931, -73.6997, 90, oferta=90),
         Nodo("O4", TipoNodo.ORIGEN, "Estación Girardot", "Girardot", "Cundinamarca",
-             4.3020, -74.8025, 80, oferta=80),
+             4.3037, -74.8035, 80, oferta=80),
         Nodo("O5", TipoNodo.ORIGEN, "Estación Fusagasugá", "Fusagasugá", "Cundinamarca",
-             4.3433, -74.3640, 110, oferta=110),
+             4.3373, -74.3637, 110, oferta=110),
         Nodo("O6", TipoNodo.ORIGEN, "Estación Facatativá", "Facatativá", "Cundinamarca",
-             4.8145, -74.3564, 95, oferta=95),
+             4.8145, -74.3548, 95, oferta=95),
     ]
-    for n in origenes:
-        grafo.agregar_nodo(n)
 
-    # ── ACOPIOS (10 centros de distribución) ─────────────────────────────────
+    # ── ACOPIOS (10 centros: Cundinamarca + Meta) ─────────────────────────────
+    # (id, nombre, municipio, depto, lat, lng, capacidad, calidad, costo_op)
+    acopios_def = [
+        ("A1",  "Centro Bogotá",        "Bogotá",        "Cundinamarca", 4.7110, -74.0721, 200, 0.95, 50.0),
+        ("A2",  "Centro Villavicencio", "Villavicencio", "Meta",         4.1420, -73.6266, 150, 0.92, 45.0),
+        ("A3",  "Centro Soacha",        "Soacha",        "Cundinamarca", 4.5790, -74.2168, 140, 0.90, 40.0),
+        ("A4",  "Centro Zipaquirá",     "Zipaquirá",     "Cundinamarca", 5.0221, -74.0048, 120, 0.93, 38.0),
+        ("A5",  "Centro Acacías",       "Acacías",       "Meta",         3.9889, -73.7558, 110, 0.88, 36.0),
+        ("A6",  "Centro Granada",       "Granada",       "Meta",         3.5460, -73.7064, 100, 0.85, 35.0),
+        ("A7",  "Centro Chía",          "Chía",          "Cundinamarca", 4.8614, -74.0586, 120, 0.94, 42.0),
+        ("A8",  "Centro Mosquera",      "Mosquera",      "Cundinamarca", 4.7059, -74.2300, 110, 0.91, 38.0),
+        ("A9",  "Centro Cumaral",       "Cumaral",       "Meta",         4.2706, -73.4889,  90, 0.89, 34.0),
+        ("A10", "Centro Madrid",        "Madrid",        "Cundinamarca", 4.7324, -74.2659, 100, 0.90, 36.0),
+    ]
     acopios = [
-        Nodo("A1", TipoNodo.ACOPIO, "Centro Bogotá", "Bogotá", "Cundinamarca",
-             4.7110, -74.0721, 200, tasa_merma=0.010, tasa_calidad=0.95, costo_operacion=50.0),
-        Nodo("A2", TipoNodo.ACOPIO, "Centro Villavicencio", "Villavicencio", "Meta",
-             4.1420, -73.6266, 150, tasa_merma=0.020, tasa_calidad=0.92, costo_operacion=40.0),
-        Nodo("A3", TipoNodo.ACOPIO, "Centro Medellín", "Medellín", "Antioquia",
-             6.2442, -75.5812, 180, tasa_merma=0.015, tasa_calidad=0.90, costo_operacion=55.0),
-        Nodo("A4", TipoNodo.ACOPIO, "Centro Cali", "Cali", "Valle del Cauca",
-             3.4516, -76.5320, 160, tasa_merma=0.020, tasa_calidad=0.88, costo_operacion=45.0),
-        Nodo("A5", TipoNodo.ACOPIO, "Centro Barranquilla", "Barranquilla", "Atlántico",
-             10.9685, -74.7813, 140, tasa_merma=0.025, tasa_calidad=0.85, costo_operacion=50.0),
-        Nodo("A6", TipoNodo.ACOPIO, "Centro Manizales", "Manizales", "Caldas",
-             5.0689, -75.5174, 120, tasa_merma=0.018, tasa_calidad=0.91, costo_operacion=35.0),
-        Nodo("A7", TipoNodo.ACOPIO, "Centro Bucaramanga", "Bucaramanga", "Santander",
-             7.1254, -73.1198, 130, tasa_merma=0.020, tasa_calidad=0.89, costo_operacion=40.0),
-        Nodo("A8", TipoNodo.ACOPIO, "Centro Cúcuta", "Cúcuta", "Norte de Santander",
-             7.8939, -72.5078, 100, tasa_merma=0.022, tasa_calidad=0.87, costo_operacion=35.0),
-        Nodo("A9", TipoNodo.ACOPIO, "Centro Pereira", "Pereira", "Risaralda",
-             4.8087, -75.6906, 110, tasa_merma=0.016, tasa_calidad=0.93, costo_operacion=35.0),
-        Nodo("A10", TipoNodo.ACOPIO, "Centro Ibagué", "Ibagué", "Tolima",
-             4.4389, -75.2322, 125, tasa_merma=0.017, tasa_calidad=0.90, costo_operacion=35.0),
+        Nodo(i, TipoNodo.ACOPIO, nom, mun, dep, lat, lng, cap,
+             tasa_merma=merma_desde_calidad(cal), tasa_calidad=cal, costo_operacion=cop)
+        for (i, nom, mun, dep, lat, lng, cap, cal, cop) in acopios_def
     ]
-    for n in acopios:
-        grafo.agregar_nodo(n)
 
-    # ── DESTINOS (25 supermercados) ───────────────────────────────────────────
+    # ── DESTINOS (25 supermercados en Cundinamarca + Meta) ────────────────────
+    # (id, nombre, municipio, depto, lat, lng, capacidad, demanda)
+    destinos_def = [
+        # Bogotá (6)
+        ("D1",  "Súper Norte Bogotá",      "Bogotá", "Cundinamarca", 4.7500, -74.0500, 30, 18),
+        ("D2",  "Súper Sur Bogotá",        "Bogotá", "Cundinamarca", 4.6300, -74.1100, 25, 15),
+        ("D3",  "Súper Centro Bogotá",     "Bogotá", "Cundinamarca", 4.6950, -74.0357, 35, 20),
+        ("D4",  "Súper Oriente Bogotá",    "Bogotá", "Cundinamarca", 4.6800, -74.0000, 20, 12),
+        ("D5",  "Súper Occidente Bogotá",  "Bogotá", "Cundinamarca", 4.6600, -74.1400, 25, 16),
+        ("D6",  "Súper Suba Bogotá",       "Bogotá", "Cundinamarca", 4.7450, -74.0830, 22, 14),
+        # Villavicencio (4)
+        ("D7",  "Súper Norte Villavicencio", "Villavicencio", "Meta", 4.1600, -73.6300, 20, 13),
+        ("D8",  "Súper Sur Villavicencio",   "Villavicencio", "Meta", 4.1200, -73.6400, 18, 11),
+        ("D9",  "Súper Centro Villavicencio","Villavicencio", "Meta", 4.1480, -73.6320, 25, 15),
+        ("D10", "Súper Este Villavicencio",  "Villavicencio", "Meta", 4.1500, -73.6100, 15,  9),
+        # Soacha (2)
+        ("D11", "Súper Centro Soacha", "Soacha", "Cundinamarca", 4.5840, -74.2230, 20, 12),
+        ("D12", "Súper Norte Soacha",  "Soacha", "Cundinamarca", 4.5900, -74.2100, 18, 10),
+        # Zipaquirá (2)
+        ("D13", "Súper Centro Zipaquirá", "Zipaquirá", "Cundinamarca", 5.0270, -74.0010, 14,  8),
+        ("D14", "Súper Sur Zipaquirá",    "Zipaquirá", "Cundinamarca", 5.0100, -74.0100, 15,  9),
+        # Acacías (2)
+        ("D15", "Súper Centro Acacías", "Acacías", "Meta", 3.9940, -73.7610, 16, 10),
+        ("D16", "Súper Norte Acacías",  "Acacías", "Meta", 3.9950, -73.7500, 13,  8),
+        # Granada (2)
+        ("D17", "Súper Centro Granada", "Granada", "Meta", 3.5510, -73.7110, 15,  9),
+        ("D18", "Súper Sur Granada",    "Granada", "Meta", 3.5400, -73.7100, 12,  7),
+        # Chía (2)
+        ("D19", "Súper Centro Chía", "Chía", "Cundinamarca", 4.8660, -74.0540, 14,  8),
+        ("D20", "Súper Norte Chía",  "Chía", "Cundinamarca", 4.8700, -74.0500, 16, 10),
+        # Fusagasugá (2)
+        ("D21", "Súper Centro Fusagasugá", "Fusagasugá", "Cundinamarca", 4.3373, -74.3637, 12,  7),
+        ("D22", "Súper Norte Fusagasugá",  "Fusagasugá", "Cundinamarca", 4.3450, -74.3600, 15,  9),
+        # Facatativá (1), Girardot (1), Cumaral (1)
+        ("D23", "Súper Centro Facatativá", "Facatativá", "Cundinamarca", 4.8145, -74.3548, 18, 11),
+        ("D24", "Súper Centro Girardot",   "Girardot",   "Cundinamarca", 4.3037, -74.8035, 12,  7),
+        ("D25", "Súper Centro Cumaral",    "Cumaral",    "Meta",         4.2756, -73.4840, 13,  8),
+    ]
     destinos = [
-        # Bogotá (5)
-        Nodo("D1", TipoNodo.DESTINO, "Súper Norte Bogotá", "Bogotá", "Cundinamarca",
-             4.7500, -74.0500, 30, demanda=18),
-        Nodo("D2", TipoNodo.DESTINO, "Súper Sur Bogotá", "Bogotá", "Cundinamarca",
-             4.6300, -74.1100, 25, demanda=15),
-        Nodo("D3", TipoNodo.DESTINO, "Súper Centro Bogotá", "Bogotá", "Cundinamarca",
-             4.6950, -74.0357, 35, demanda=20),
-        Nodo("D4", TipoNodo.DESTINO, "Súper Oriente Bogotá", "Bogotá", "Cundinamarca",
-             4.6800, -74.0000, 20, demanda=12),
-        Nodo("D5", TipoNodo.DESTINO, "Súper Occidente Bogotá", "Bogotá", "Cundinamarca",
-             4.6600, -74.1400, 25, demanda=16),
-        # Medellín (4)
-        Nodo("D6", TipoNodo.DESTINO, "Súper Norte Medellín", "Medellín", "Antioquia",
-             6.2700, -75.5600, 22, demanda=14),
-        Nodo("D7", TipoNodo.DESTINO, "Súper Sur Medellín", "Medellín", "Antioquia",
-             6.2100, -75.5800, 20, demanda=12),
-        Nodo("D8", TipoNodo.DESTINO, "Súper Centro Medellín", "Medellín", "Antioquia",
-             6.2500, -75.5700, 28, demanda=16),
-        Nodo("D9", TipoNodo.DESTINO, "Súper Oriente Medellín", "Medellín", "Antioquia",
-             6.2300, -75.5400, 18, demanda=10),
-        # Cali (4)
-        Nodo("D10", TipoNodo.DESTINO, "Súper Norte Cali", "Cali", "Valle del Cauca",
-             3.4800, -76.5100, 20, demanda=13),
-        Nodo("D11", TipoNodo.DESTINO, "Súper Sur Cali", "Cali", "Valle del Cauca",
-             3.4200, -76.5400, 18, demanda=11),
-        Nodo("D12", TipoNodo.DESTINO, "Súper Centro Cali", "Cali", "Valle del Cauca",
-             3.4600, -76.5200, 25, demanda=15),
-        Nodo("D13", TipoNodo.DESTINO, "Súper Oriente Cali", "Cali", "Valle del Cauca",
-             3.4400, -76.4900, 15, demanda=9),
-        # Barranquilla (3)
-        Nodo("D14", TipoNodo.DESTINO, "Súper Norte Barranquilla", "Barranquilla", "Atlántico",
-             11.0000, -74.8100, 20, demanda=12),
-        Nodo("D15", TipoNodo.DESTINO, "Súper Centro Barranquilla", "Barranquilla", "Atlántico",
-             10.9600, -74.7600, 18, demanda=10),
-        Nodo("D16", TipoNodo.DESTINO, "Súper Sur Barranquilla", "Barranquilla", "Atlántico",
-             10.9300, -74.7900, 22, demanda=14),
-        # Bucaramanga (2)
-        Nodo("D17", TipoNodo.DESTINO, "Súper Norte Bucaramanga", "Bucaramanga", "Santander",
-             7.1400, -73.1300, 15, demanda=9),
-        Nodo("D18", TipoNodo.DESTINO, "Súper Sur Bucaramanga", "Bucaramanga", "Santander",
-             7.1000, -73.1100, 18, demanda=11),
-        # Villavicencio (2)
-        Nodo("D19", TipoNodo.DESTINO, "Súper Norte Villavicencio", "Villavicencio", "Meta",
-             4.1600, -73.6300, 15, demanda=8),
-        Nodo("D20", TipoNodo.DESTINO, "Súper Sur Villavicencio", "Villavicencio", "Meta",
-             4.1200, -73.6400, 15, demanda=10),
-        # Manizales (2)
-        Nodo("D21", TipoNodo.DESTINO, "Súper Norte Manizales", "Manizales", "Caldas",
-             5.0800, -75.5100, 12, demanda=7),
-        Nodo("D22", TipoNodo.DESTINO, "Súper Sur Manizales", "Manizales", "Caldas",
-             5.0500, -75.5300, 15, demanda=9),
-        # Pereira (1)
-        Nodo("D23", TipoNodo.DESTINO, "Súper Centro Pereira", "Pereira", "Risaralda",
-             4.8100, -75.6900, 15, demanda=8),
-        # Cúcuta (1)
-        Nodo("D24", TipoNodo.DESTINO, "Súper Centro Cúcuta", "Cúcuta", "Norte de Santander",
-             7.9000, -72.5100, 12, demanda=7),
-        # Ibagué (1)
-        Nodo("D25", TipoNodo.DESTINO, "Súper Centro Ibagué", "Ibagué", "Tolima",
-             4.4400, -75.2300, 18, demanda=11),
+        Nodo(i, TipoNodo.DESTINO, nom, mun, dep, lat, lng, cap, demanda=dem)
+        for (i, nom, mun, dep, lat, lng, cap, dem) in destinos_def
     ]
-    for n in destinos:
+
+    for n in origenes + acopios + destinos:
         grafo.agregar_nodo(n)
 
-    # ── ARISTAS Origen → Acopio ───────────────────────────────────────────────
-    # (id_origen, id_destino, costo_transport $/ton, capacidad ton, distancia km)
-    rutas_origen_acopio = [
-        # Meta → Villavicencio (hub regional del Meta)
-        ("O1", "A2", 12.5, 80, 86),
-        ("O2", "A2", 18.0, 70, 190),
-        ("O3", "A2", 11.0, 60, 75),
-        # Meta → Bogotá
-        ("O1", "A1", 15.0, 60, 185),
-        ("O2", "A7", 35.0, 40, 450),  # Puerto Gaitán → Bucaramanga
-        ("O3", "A10", 14.0, 50, 150), # San Martín → Ibagué
-        # Cundinamarca → Bogotá
-        ("O4", "A1", 12.0, 70, 132),
-        ("O5", "A1", 10.0, 80, 75),
-        ("O6", "A1", 8.0, 90, 45),
-        # Cundinamarca → otros
-        ("O4", "A10", 10.0, 50, 90),  # Girardot → Ibagué
-        ("O4", "A4", 22.0, 40, 280),  # Girardot → Cali
-        ("O5", "A10", 12.0, 50, 105), # Fusagasugá → Ibagué
-        ("O5", "A9", 18.0, 40, 210),  # Fusagasugá → Pereira
-        ("O6", "A3", 28.0, 50, 340),  # Facatativá → Medellín
-        ("O6", "A6", 22.0, 40, 250),  # Facatativá → Manizales
+    # ── ARISTAS (origen, destino, capacidad) — distancia y costo automáticos ──
+    conexiones = [
+        # Origen → Acopio
+        ("O1", "A2", 80), ("O1", "A9", 50),
+        ("O2", "A2", 70), ("O2", "A9", 40),
+        ("O3", "A2", 60), ("O3", "A5", 50), ("O3", "A6", 50),
+        ("O4", "A3", 60), ("O4", "A1", 50),
+        ("O5", "A3", 70), ("O5", "A1", 60),
+        ("O6", "A8", 70), ("O6", "A10", 60), ("O6", "A1", 50),
+        # Acopio → Acopio (redistribución)
+        ("A2", "A1", 120), ("A5", "A2", 60), ("A6", "A2", 50), ("A9", "A2", 50),
+        ("A1", "A3", 80), ("A1", "A7", 80), ("A1", "A8", 70),
+        ("A7", "A4", 50), ("A10", "A8", 50),
+        # Acopio → Destino (última milla)
+        ("A1", "D1", 30), ("A1", "D2", 25), ("A1", "D3", 35),
+        ("A1", "D4", 20), ("A1", "D5", 25), ("A1", "D6", 22),
+        ("A2", "D7", 20), ("A2", "D8", 18), ("A2", "D9", 25), ("A2", "D10", 15),
+        ("A3", "D11", 20), ("A3", "D12", 18),
+        ("A4", "D13", 14), ("A4", "D14", 15),
+        ("A5", "D15", 16), ("A5", "D16", 13),
+        ("A6", "D17", 15), ("A6", "D18", 12),
+        ("A7", "D19", 14), ("A7", "D20", 16),
+        ("A3", "D21", 14), ("A3", "D22", 15),   # Soacha → Fusagasugá
+        ("A10", "D23", 18),                       # Madrid → Facatativá
+        ("A3", "D24", 12),                        # Soacha → Girardot
+        ("A9", "D25", 13),                        # Cumaral → Cumaral
     ]
-    for u, v, costo, cap, dist in rutas_origen_acopio:
-        grafo.agregar_arista(Arista(u, v, costo, cap, dist))
 
-    # ── ARISTAS Acopio → Acopio (redistribución inter-centros) ───────────────
-    rutas_acopio_acopio = [
-        ("A2", "A1", 10.0, 120, 99),   # Villavicencio → Bogotá
-        ("A1", "A3", 32.0, 100, 415),  # Bogotá → Medellín
-        ("A1", "A5", 55.0, 80, 1000),  # Bogotá → Barranquilla
-        ("A1", "A7", 30.0, 80, 395),   # Bogotá → Bucaramanga
-        ("A1", "A6", 25.0, 60, 290),   # Bogotá → Manizales
-        ("A1", "A9", 24.0, 60, 285),   # Bogotá → Pereira
-        ("A3", "A4", 33.0, 80, 420),   # Medellín → Cali
-        ("A3", "A6", 20.0, 60, 205),   # Medellín → Manizales
-        ("A6", "A9", 8.0, 50, 45),     # Manizales → Pereira
-        ("A7", "A8", 18.0, 50, 200),   # Bucaramanga → Cúcuta
-        ("A10", "A4", 22.0, 60, 260),  # Ibagué → Cali
-        ("A10", "A9", 13.0, 50, 120),  # Ibagué → Pereira
-    ]
-    for u, v, costo, cap, dist in rutas_acopio_acopio:
-        grafo.agregar_arista(Arista(u, v, costo, cap, dist))
-
-    # ── ARISTAS Acopio → Destino (última milla) ───────────────────────────────
-    # Bogotá (A1 → D1..D5)
-    ultima_milla = [
-        ("A1", "D1", 8.0, 30, 12), ("A1", "D2", 8.5, 25, 18),
-        ("A1", "D3", 7.5, 35, 8),  ("A1", "D4", 9.0, 20, 15),
-        ("A1", "D5", 8.5, 25, 16),
-        # Medellín (A3 → D6..D9)
-        ("A3", "D6", 7.5, 22, 10), ("A3", "D7", 8.0, 20, 14),
-        ("A3", "D8", 7.5, 28, 8),  ("A3", "D9", 8.0, 18, 12),
-        # Cali (A4 → D10..D13)
-        ("A4", "D10", 7.5, 20, 9), ("A4", "D11", 8.0, 18, 12),
-        ("A4", "D12", 7.5, 25, 7), ("A4", "D13", 8.0, 15, 11),
-        # Barranquilla (A5 → D14..D16)
-        ("A5", "D14", 8.0, 20, 10), ("A5", "D15", 8.5, 18, 12),
-        ("A5", "D16", 7.5, 22, 8),
-        # Bucaramanga (A7 → D17..D18)
-        ("A7", "D17", 7.5, 15, 8), ("A7", "D18", 8.0, 18, 10),
-        # Villavicencio (A2 → D19..D20)
-        ("A2", "D19", 6.5, 15, 5), ("A2", "D20", 7.0, 15, 8),
-        # Manizales (A6 → D21..D22)
-        ("A6", "D21", 7.5, 12, 8), ("A6", "D22", 8.0, 15, 10),
-        # Pereira, Cúcuta, Ibagué
-        ("A9", "D23", 6.5, 15, 5),
-        ("A8", "D24", 7.5, 12, 8),
-        ("A10", "D25", 6.5, 18, 5),
-    ]
-    for u, v, costo, cap, dist in ultima_milla:
+    for u, v, cap in conexiones:
+        nu, nv = grafo.obtener_nodo(u), grafo.obtener_nodo(v)
+        dist = distancia_vial(nu.latitud, nu.longitud, nv.latitud, nv.longitud)
+        costo = costo_desde_distancia(dist)
         grafo.agregar_arista(Arista(u, v, costo, cap, dist))
 
     return grafo

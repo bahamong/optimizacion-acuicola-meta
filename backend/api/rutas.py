@@ -35,7 +35,9 @@ from sensibilidad.escenarios import AnalizadorSensibilidad
 from utils.helpers import (
     calcular_metricas_resultado,
     construir_red_acuicola,
+    distancia_vial,
     flujos_a_dict,
+    merma_desde_calidad,
 )
 from utils.logger import get_logger
 
@@ -176,21 +178,41 @@ def cargar_datos(datos: CargaDatosDTO):
                     status_code=400,
                     detail=f"Tipo de nodo inválido: '{nd.tipo}'. Usa 'origen', 'acopio' o 'destino'.",
                 )
+            # La merma de un acopio se deriva de su calidad (no se edita aparte)
+            merma = (
+                merma_desde_calidad(nd.tasa_calidad)
+                if tipo == TipoNodo.ACOPIO else nd.tasa_merma
+            )
             nodo = Nodo(
                 id=nd.id, tipo=tipo, nombre=nd.nombre,
                 municipio=nd.municipio, departamento=nd.departamento,
                 latitud=nd.latitud, longitud=nd.longitud,
                 capacidad=nd.capacidad, oferta=nd.oferta, demanda=nd.demanda,
-                tasa_merma=nd.tasa_merma, tasa_calidad=nd.tasa_calidad,
+                tasa_merma=merma, tasa_calidad=nd.tasa_calidad,
                 costo_operacion=nd.costo_operacion,
             )
             grafo_actual.agregar_nodo(nodo)
 
+        # Dedup: solo una arista por par (origen, destino)
+        vistas = set()
         for ad in datos.aristas:
+            clave = (ad.id_origen, ad.id_destino)
+            if clave in vistas:
+                continue  # ruta duplicada — se ignora
+            vistas.add(clave)
+
+            # Distancia automática si no viene (o viene en 0) desde coordenadas
+            dist = ad.distancia
+            if not dist or dist <= 0:
+                no = grafo_actual.obtener_nodo(ad.id_origen)
+                nd_ = grafo_actual.obtener_nodo(ad.id_destino)
+                if no and nd_:
+                    dist = distancia_vial(no.latitud, no.longitud, nd_.latitud, nd_.longitud)
+
             arista = Arista(
                 id_origen=ad.id_origen, id_destino=ad.id_destino,
                 costo_transporte=ad.costo_transporte, capacidad=ad.capacidad,
-                distancia=ad.distancia, estado=ad.estado,
+                distancia=dist, estado=ad.estado,
             )
             grafo_actual.agregar_arista(arista)
 

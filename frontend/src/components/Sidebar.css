@@ -6,7 +6,10 @@
   flex-direction: column;
   flex-shrink: 0;
   box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+  transition: width 0.2s ease;
 }
+
+.sidebar.colapsada { width: 60px; }
 
 /* Logo */
 .sidebar-logo {
@@ -15,9 +18,35 @@
   gap: 0.7rem;
   padding: 1.2rem 1rem;
   border-bottom: 1px solid rgba(255,255,255,0.1);
+  position: relative;
 }
 
-.sidebar-logo-icon { font-size: 1.8rem; }
+.sidebar.colapsada .sidebar-logo { padding: 1.2rem 0; justify-content: center; }
+
+.sidebar-logo-icon { font-size: 1.8rem; color: #a5b4fc; flex-shrink: 0; }
+
+/* Botón contraer/expandir */
+.sidebar-toggle {
+  margin-left: auto;
+  background: rgba(255,255,255,0.1);
+  border: none;
+  color: rgba(255,255,255,0.7);
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  transition: background 0.15s;
+}
+.sidebar-toggle:hover { background: rgba(255,255,255,0.2); color: #fff; }
+.sidebar.colapsada .sidebar-toggle {
+  position: absolute;
+  top: 1.2rem; right: -12px;
+  background: #6366f1; color: #fff;
+  margin-left: 0;
+}
 
 .sidebar-logo-title {
   font-size: 0.95rem;
@@ -70,6 +99,9 @@
 
 .sidebar-icono { font-size: 1.1rem; flex-shrink: 0; }
 .sidebar-label { flex: 1; }
+
+.sidebar.colapsada .sidebar-item { justify-content: center; padding: 0.75rem 0; }
+.sidebar.colapsada .sidebar-item.activo { border-left-width: 3px; }
 
 .sidebar-alerta {
   background: #ef4444;
