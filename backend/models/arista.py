@@ -11,6 +11,7 @@ class Arista:
     capacidad: float         # ton máximas por período
     distancia: float         # km
     estado: str = "activa"   # "activa" | "bloqueada" | "degradada"
+    umbral_calidad: float = 0.0   # %: si la calidad de origen/destino cae por debajo → ruta en riesgo
     flujo_actual: float = 0.0
     tiempo_transito: float = 0.0  # horas (calculado)
     velocidad: float = 65.0       # km/h promedio

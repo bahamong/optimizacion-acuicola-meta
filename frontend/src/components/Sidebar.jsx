@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   FaDatabase, FaMapMarkedAlt, FaChartBar, FaFish,
   FaAngleLeft, FaAngleRight, FaExclamation,
@@ -11,8 +11,17 @@ const ITEMS = [
   { id: 'evaluar', icono: FaChartBar,     label: 'Evaluar'         },
 ]
 
+const LS_KEY = 'sidebar-colapsada'
+
 export default function Sidebar({ vistaActual, onCambiar, sincronizado }) {
-  const [colapsada, setColapsada] = useState(false)
+  const [colapsada, setColapsada] = useState(() => {
+    try { return localStorage.getItem(LS_KEY) === 'true' } catch { return false }
+  })
+
+  // Persistir el estado expandido/colapsado entre recargas
+  useEffect(() => {
+    try { localStorage.setItem(LS_KEY, String(colapsada)) } catch { /* ignore */ }
+  }, [colapsada])
 
   return (
     <nav className={`sidebar ${colapsada ? 'colapsada' : ''}`}>

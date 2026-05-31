@@ -132,6 +132,7 @@ class GrafoRed:
                     "flujo": a.flujo_actual,
                     "utilizacion": round(a.utilizacion, 4),
                     "estado": a.estado,
+                    "umbral_calidad": a.umbral_calidad,
                 }
                 for a in self.aristas.values()
             ],

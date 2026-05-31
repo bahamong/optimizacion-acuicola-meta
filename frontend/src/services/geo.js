@@ -85,15 +85,41 @@ export function distanciaHaversine(latO, lngO, latD, lngD) {
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 1.3 * 10) / 10
 }
 
-// Municipios válidos por departamento (Cundinamarca + Meta)
+// Municipios válidos por departamento (Cundinamarca + Meta).
+// Lista oficial completa (DANE). Bogotá D.C. se incluye en Cundinamarca por
+// compatibilidad con los datos de ejemplo de la red.
 export const MUNICIPIOS = {
   Cundinamarca: [
-    'Bogotá', 'Soacha', 'Girardot', 'Zipaquirá', 'Facatativá', 'Fusagasugá',
-    'Chía', 'Mosquera', 'Madrid', 'Funza', 'Cajicá', 'Cota', 'La Mesa', 'Villeta',
+    'Bogotá',
+    'Agua de Dios', 'Albán', 'Anapoima', 'Anolaima', 'Apulo', 'Arbeláez',
+    'Beltrán', 'Bituima', 'Bojacá', 'Cabrera', 'Cachipay', 'Cajicá',
+    'Caparrapí', 'Cáqueza', 'Carmen de Carupa', 'Chaguaní', 'Chía', 'Chipaque',
+    'Choachí', 'Chocontá', 'Cogua', 'Cota', 'Cucunubá', 'El Colegio',
+    'El Peñón', 'El Rosal', 'Facatativá', 'Fómeque', 'Fosca', 'Funza',
+    'Fúquene', 'Fusagasugá', 'Gachalá', 'Gachancipá', 'Gachetá', 'Gama',
+    'Girardot', 'Granada', 'Guachetá', 'Guaduas', 'Guasca', 'Guataquí',
+    'Guatavita', 'Guayabal de Síquima', 'Guayabetal', 'Gutiérrez', 'Jerusalén',
+    'Junín', 'La Calera', 'La Mesa', 'La Palma', 'La Peña', 'La Vega',
+    'Lenguazaque', 'Macheta', 'Madrid', 'Manta', 'Medina', 'Mosquera',
+    'Nariño', 'Nemocón', 'Nilo', 'Nimaima', 'Nocaima', 'Venecia', 'Pacho',
+    'Paime', 'Pandi', 'Paratebueno', 'Pasca', 'Puerto Salgar', 'Pulí',
+    'Quebradanegra', 'Quetame', 'Quipile', 'Ricaurte', 'San Antonio del Tequendama',
+    'San Bernardo', 'San Cayetano', 'San Francisco', 'San Juan de Rioseco',
+    'Sasaima', 'Sesquilé', 'Sibaté', 'Silvania', 'Simijaca', 'Soacha', 'Sopó',
+    'Subachoque', 'Suesca', 'Supatá', 'Susa', 'Sutatausa', 'Tabio', 'Tausa',
+    'Tena', 'Tenjo', 'Tibacuy', 'Tibirita', 'Tocaima', 'Tocancipá', 'Topaipí',
+    'Ubalá', 'Ubaque', 'Ubaté', 'Une', 'Útica', 'Vergara', 'Vianí',
+    'Villagómez', 'Villapinzón', 'Villeta', 'Viotá', 'Yacopí', 'Zipacón',
+    'Zipaquirá',
   ],
   Meta: [
-    'Villavicencio', 'Acacías', 'Granada', 'Puerto López', 'Puerto Gaitán',
-    'San Martín', 'Cumaral', 'Restrepo', 'Guamal', 'Castilla La Nueva',
+    'Villavicencio',
+    'Acacías', 'Barranca de Upía', 'Cabuyaro', 'Castilla La Nueva', 'Cubarral',
+    'Cumaral', 'El Calvario', 'El Castillo', 'El Dorado', 'Fuente de Oro',
+    'Granada', 'Guamal', 'Mapiripán', 'Mesetas', 'La Macarena', 'Uribe',
+    'Lejanías', 'Puerto Concordia', 'Puerto Gaitán', 'Puerto López',
+    'Puerto Lleras', 'Puerto Rico', 'Restrepo', 'San Carlos de Guaroa',
+    'San Juan de Arama', 'San Juanito', 'San Martín', 'Vista Hermosa',
   ],
 }
 

@@ -4,7 +4,7 @@ import L from 'leaflet'
 import {
   FaIndustry, FaWarehouse, FaStore, FaRoute, FaBoxOpen,
   FaCheckCircle, FaExclamationTriangle, FaSyncAlt, FaUpload, FaDownload,
-  FaPlus, FaPlay, FaPen, FaTrash, FaTimes, FaSearch, FaSpinner,
+  FaPlus, FaPlay, FaPen, FaTrash, FaTimes, FaSearch, FaSpinner, FaFilter,
 } from 'react-icons/fa'
 import {
   buscarLugares, geocodificarInverso, distanciaRuta, distanciaHaversine,
@@ -28,6 +28,7 @@ const NODO_VACIO = {
 }
 const ARISTA_VACIA = {
   origen: '', destino: '', costo: 0, capacidad: 50, distancia: 0, estado: 'activa',
+  umbral_calidad: 0,
 }
 
 const TIPO_BADGE = {
@@ -36,8 +37,21 @@ const TIPO_BADGE = {
   destino: { bg: '#dcfce7', color: '#166534', txt: 'Destino' },
 }
 
-// Merma derivada de la calidad (igual fórmula que el backend)
-const mermaDesdeCalidad = c => Math.round((1 - Math.max(0, Math.min(1, c))) * 0.30 * 10000) / 10000
+// Merma derivada de la calidad: merma = 100% - calidad (igual que el backend)
+const mermaDesdeCalidad = c => Math.round((1 - Math.max(0, Math.min(1, c))) * 10000) / 10000
+
+// ¿La ruta está en riesgo? Si la calidad de origen o destino cae por debajo
+// del umbral de fallo de calidad configurado en la ruta (0 = sin control).
+function aristaEnRiesgo(a, nodos) {
+  const umbral = Number(a.umbral_calidad) || 0
+  if (umbral <= 0) return false
+  const o = a.origen || a.id_origen
+  const dest = a.destino || a.id_destino
+  return [o, dest]
+    .map(id => nodos.find(n => n.id === id))
+    .filter(Boolean)
+    .some(n => (n.tasa_calidad ?? 1) * 100 < umbral)
+}
 
 // Genera el siguiente ID automático según el tipo
 function siguienteId(nodos, tipo) {
@@ -84,8 +98,8 @@ function MiniMapa({ lat, lng, onMover }) {
     <div className="mini-mapa">
       <MapContainer center={[lat, lng]} zoom={12} className="mini-mapa-leaflet" scrollWheelZoom>
         <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-          subdomains="abcd"
+          url="https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+          subdomains={['mt0', 'mt1', 'mt2', 'mt3']}
         />
         <Recentrar lat={lat} lng={lng} />
         <ClickColoca onMover={onMover} />
@@ -117,9 +131,13 @@ function FormNodo({ inicial, onGuardar, onCerrar, nodos }) {
   const [buscando, setBuscando] = useState(false)
   const debounceRef = useRef()
 
+  // Coordenadas como texto editable (se aplican al perder el foco)
+  const [latStr, setLatStr] = useState(() => Number(d.lat).toFixed(6))
+  const [lngStr, setLngStr] = useState(() => Number(d.lng).toFixed(6))
+
   const set = (k, v) => setD(p => ({ ...p, [k]: v }))
 
-  // Buscar lugares mientras se escribe (debounce 500ms)
+  // Buscar lugares mientras se escribe (debounce 300ms, ≥3 caracteres)
   function onCambioDireccion(texto) {
     set('direccion', texto)
     clearTimeout(debounceRef.current)
@@ -129,7 +147,7 @@ function FormNodo({ inicial, onGuardar, onCerrar, nodos }) {
       const res = await buscarLugares(texto)
       setSugerencias(res)
       setBuscando(false)
-    }, 500)
+    }, 300)
   }
 
   function elegirSugerencia(s) {
@@ -156,6 +174,23 @@ function FormNodo({ inicial, onGuardar, onCerrar, nodos }) {
       }))
     }
   }, [])
+
+  // Mantener los campos de texto sincronizados con las coordenadas del pin
+  useEffect(() => {
+    setLatStr(Number(d.lat).toFixed(6))
+    setLngStr(Number(d.lng).toFixed(6))
+  }, [d.lat, d.lng])
+
+  // Al editar lat/lng manualmente y perder el foco, mover el pin a esas coordenadas
+  function aplicarCoordManual() {
+    const la = parseFloat(latStr), ln = parseFloat(lngStr)
+    if (!isNaN(la) && !isNaN(ln) && la >= -90 && la <= 90 && ln >= -180 && ln <= 180) {
+      moverPin(la, ln)
+    } else {
+      setLatStr(Number(d.lat).toFixed(6))
+      setLngStr(Number(d.lng).toFixed(6))
+    }
+  }
 
   // Cambiar departamento → ajustar municipio al primero válido
   function cambiarDepto(dep) {
@@ -233,12 +268,20 @@ function FormNodo({ inicial, onGuardar, onCerrar, nodos }) {
 
       <div className="form-fila2">
         <div className="form-campo">
-          <label>Latitud (automática)</label>
-          <input value={Number(d.lat).toFixed(5)} readOnly className="readonly" />
+          <label>Latitud (editable)</label>
+          <input
+            type="number" step="0.000001" value={latStr}
+            onChange={e => setLatStr(e.target.value)}
+            onBlur={aplicarCoordManual}
+          />
         </div>
         <div className="form-campo">
-          <label>Longitud (automática)</label>
-          <input value={Number(d.lng).toFixed(5)} readOnly className="readonly" />
+          <label>Longitud (editable)</label>
+          <input
+            type="number" step="0.000001" value={lngStr}
+            onChange={e => setLngStr(e.target.value)}
+            onBlur={aplicarCoordManual}
+          />
         </div>
       </div>
 
@@ -306,6 +349,7 @@ function FormArista({ inicial, onGuardar, onCerrar, nodos, aristas }) {
     origen: inicial?.origen || inicial?.id_origen || '',
     destino: inicial?.destino || inicial?.id_destino || '',
     costo: inicial?.costo ?? inicial?.costo_transporte ?? 0,
+    umbral_calidad: inicial?.umbral_calidad ?? 0,
   }))
   const [calcDist, setCalcDist] = useState(false)
 
@@ -391,12 +435,22 @@ function FormArista({ inicial, onGuardar, onCerrar, nodos, aristas }) {
         </div>
       </div>
 
-      <div className="form-campo">
-        <label>Estado</label>
-        <select value={d.estado} onChange={e => set('estado', e.target.value)}>
-          <option value="activa">Activa</option>
-          <option value="bloqueada">Bloqueada</option>
-        </select>
+      <div className="form-fila2">
+        <div className="form-campo">
+          <label>Estado</label>
+          <select value={d.estado} onChange={e => set('estado', e.target.value)}>
+            <option value="activa">Activa</option>
+            <option value="bloqueada">Bloqueada</option>
+          </select>
+        </div>
+        <div className="form-campo">
+          <label>Umbral de fallo de calidad (%)</label>
+          <input
+            type="number" min="0" max="100" value={d.umbral_calidad}
+            onChange={e => set('umbral_calidad', Math.max(0, Math.min(100, Number(e.target.value))))}
+          />
+          <span className="form-hint">Si la calidad de origen o destino baja de este %, la ruta se marca en riesgo.</span>
+        </div>
       </div>
 
       <div className="form-acciones">
@@ -419,7 +473,12 @@ export default function VistaDatos({
   const [filtro, setFiltro] = useState('')
   const [filtroTipo, setFiltroTipo] = useState('todos')
   const [filtroDepto, setFiltroDepto] = useState('todos')
+  const [filtroMunicipio, setFiltroMunicipio] = useState('todos')
   const fileRef = useRef()
+
+  const limpiarFiltros = () => {
+    setFiltroTipo('todos'); setFiltroDepto('todos'); setFiltroMunicipio('todos'); setFiltro('')
+  }
 
   // ── CRUD nodos ─────────────────────────────────────────────────────────────
   function agregarNodo(datos) {
@@ -481,6 +540,7 @@ export default function VistaDatos({
   const nodosFiltrados = nodos.filter(n =>
     (filtroTipo === 'todos' || n.tipo === filtroTipo) &&
     (filtroDepto === 'todos' || n.departamento === filtroDepto) &&
+    (filtroMunicipio === 'todos' || n.municipio === filtroMunicipio) &&
     (!txt || n.nombre?.toLowerCase().includes(txt) || n.municipio?.toLowerCase().includes(txt))
   )
   const aristasFiltradas = aristas.map((a, idx) => ({ a, idx })).filter(({ a }) => {
@@ -541,16 +601,34 @@ export default function VistaDatos({
 
         {tab === 'nodos' && (
           <div className="filtros-grupo">
+            <span className="filtros-icono"><FaFilter /></span>
             <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)} className="filtro-select">
               <option value="todos">Todos los tipos</option>
               <option value="origen">Orígenes</option>
               <option value="acopio">Acopios</option>
               <option value="destino">Destinos</option>
             </select>
-            <select value={filtroDepto} onChange={e => setFiltroDepto(e.target.value)} className="filtro-select">
+            <select
+              value={filtroDepto}
+              onChange={e => { setFiltroDepto(e.target.value); setFiltroMunicipio('todos') }}
+              className="filtro-select"
+            >
               <option value="todos">Todos los deptos.</option>
               {DEPARTAMENTOS.map(dep => <option key={dep} value={dep}>{dep}</option>)}
             </select>
+            <select
+              value={filtroMunicipio}
+              onChange={e => setFiltroMunicipio(e.target.value)}
+              className="filtro-select"
+              disabled={filtroDepto === 'todos'}
+              title={filtroDepto === 'todos' ? 'Selecciona un departamento primero' : undefined}
+            >
+              <option value="todos">Todos los municipios</option>
+              {(MUNICIPIOS[filtroDepto] || []).map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <button className="btn-limpiar-filtros" onClick={limpiarFiltros} title="Limpiar filtros">
+              <FaTimes /> Limpiar
+            </button>
           </div>
         )}
 
@@ -628,14 +706,22 @@ export default function VistaDatos({
                 const dest = a.destino || a.id_destino || ''
                 const nO = nodos.find(n => n.id === o)
                 const nD = nodos.find(n => n.id === dest)
+                const riesgo = aristaEnRiesgo(a, nodos)
                 return (
-                  <tr key={idx}>
+                  <tr key={idx} className={riesgo ? 'fila-riesgo' : ''}>
                     <td className="td-nombre">{nO?.nombre || o}</td>
                     <td className="td-nombre">{nD?.nombre || dest}</td>
                     <td className="td-num">${Number(a.costo || a.costo_transporte || 0).toFixed(2)}</td>
                     <td className="td-num">{a.capacidad}</td>
                     <td className="td-num">{a.distancia} km</td>
-                    <td><span className={`estado-badge ${a.estado === 'bloqueada' ? 'bloqueada' : 'activa'}`}>{a.estado || 'activa'}</span></td>
+                    <td>
+                      <span className={`estado-badge ${a.estado === 'bloqueada' ? 'bloqueada' : 'activa'}`}>{a.estado || 'activa'}</span>
+                      {riesgo && (
+                        <span className="riesgo-badge" title={`Calidad de origen/destino por debajo del umbral (${a.umbral_calidad}%)`}>
+                          <FaExclamationTriangle /> En riesgo
+                        </span>
+                      )}
+                    </td>
                     <td className="td-num">{a.flujo > 0 ? `${Number(a.flujo).toFixed(1)} (${((a.utilizacion || 0) * 100).toFixed(0)}%)` : '—'}</td>
                     <td className="td-acciones">
                       <button className="btn-tabla-edit" onClick={() => setModal({ tipo: 'arista-editar', datos: a, idx })}><FaPen /></button>

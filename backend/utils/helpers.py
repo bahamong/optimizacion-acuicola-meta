@@ -47,10 +47,10 @@ def costo_desde_distancia(distancia_km: float) -> float:
 
 def merma_desde_calidad(tasa_calidad: float) -> float:
     """
-    La merma de un acopio se deriva de su calidad:
-    menos calidad → más merma. Calidad 1.0 → 0% merma; calidad 0.0 → 30% merma.
+    La merma de un acopio se deriva directamente de su calidad:
+    merma = 100% - calidad. Calidad 1.0 → 0% merma; calidad 0.85 → 15% merma.
     """
-    return round((1.0 - max(0.0, min(1.0, tasa_calidad))) * 0.30, 4)
+    return round(1.0 - max(0.0, min(1.0, tasa_calidad)), 4)
 
 
 def construir_red_acuicola() -> GrafoRed:

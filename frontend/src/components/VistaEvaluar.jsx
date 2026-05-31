@@ -13,6 +13,10 @@ import {
   PointElement, LineElement, Title, Tooltip, Legend, Filler,
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
+import {
+  FaMapMarkedAlt, FaWater, FaBolt, FaSearch, FaPlay, FaChartBar,
+  FaCheckCircle, FaExclamationTriangle, FaTimesCircle,
+} from 'react-icons/fa'
 import * as api from '../services/api.js'
 import './VistaEvaluar.css'
 
@@ -62,7 +66,7 @@ function ResultadoRuta({ resultado, nodos, onVerEnMapa }) {
   if (!resultado.existe) {
     return (
       <div className="ev-no-ruta">
-        ✗ No existe ruta entre los nodos seleccionados con la red actual.
+        <FaTimesCircle /> No existe ruta entre los nodos seleccionados con la red actual.
       </div>
     )
   }
@@ -146,7 +150,7 @@ function ResultadoRuta({ resultado, nodos, onVerEnMapa }) {
       )}
 
       <button className="ev-btn-mapa" onClick={() => onVerEnMapa(resultado.ruta)}>
-        🗺 Ver esta ruta en el mapa
+        <FaMapMarkedAlt /> Ver esta ruta en el mapa
       </button>
     </div>
   )
@@ -231,7 +235,7 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
             costo de transporte + almacenamiento + mermas, respetando oferta, demanda y capacidades.
           </p>
           {!sincronizado && (
-            <p className="ev-aviso">⚠ Aplica los datos al sistema primero (pestaña Datos de la Red).</p>
+            <p className="ev-aviso"><FaExclamationTriangle /> Aplica los datos al sistema primero (pestaña Datos de la Red).</p>
           )}
         </div>
         <button
@@ -241,7 +245,7 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
         >
           {cargando
             ? <><span className="spinner-btn" />{msgCarga || 'Procesando...'}</>
-            : '▶  Ejecutar optimización'}
+            : <><FaPlay /> Ejecutar optimización</>}
         </button>
       </div>
 
@@ -267,8 +271,8 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
           {resultados.validacion && (
             <div className={`ev-validacion ${resultados.validacion.total_violaciones===0?'ok':'warn'}`}>
               {resultados.validacion.total_violaciones === 0
-                ? '✓ Todas las restricciones se cumplen (oferta, demanda, capacidad, calidad)'
-                : `⚠ ${resultados.validacion.total_violaciones} violación(es) — déficit: ${resultados.validacion.deficit_total?.toFixed(2)} ton`
+                ? <><FaCheckCircle /> Todas las restricciones se cumplen (oferta, demanda, capacidad, calidad)</>
+                : <><FaExclamationTriangle /> {resultados.validacion.total_violaciones} violación(es) — déficit: {resultados.validacion.deficit_total?.toFixed(2)} ton</>
               }
             </div>
           )}
@@ -345,7 +349,7 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
 
       {!resultados && !cargando && (
         <div className="ev-placeholder">
-          <p className="ev-placeholder-icon">📊</p>
+          <p className="ev-placeholder-icon"><FaChartBar /></p>
           <p>Ejecuta la optimización para ver ganancia, flujos óptimos y convergencia del AG.</p>
           <p className="ev-placeholder-sub">Tiempo estimado: 20–40 segundos con la red completa (41 nodos).</p>
         </div>
@@ -356,9 +360,9 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
 
 // ── Componente principal ──────────────────────────────────────────────────────
 const SUB_ANALISIS = [
-  { id: 'ruta',      icono: '🗺️', label: 'Ruta Óptima',      desc: 'Dijkstra — menor costo entre dos nodos' },
-  { id: 'flujo',     icono: '🌊', label: 'Flujo Máximo',      desc: 'Ford-Fulkerson — cuello de botella' },
-  { id: 'optimizar', icono: '⚡', label: 'Optimización',      desc: 'AG + Gradiente — optimización completa' },
+  { id: 'ruta',      Icono: FaMapMarkedAlt, label: 'Ruta Óptima',  desc: 'Dijkstra — menor costo entre dos nodos' },
+  { id: 'flujo',     Icono: FaWater,        label: 'Flujo Máximo', desc: 'Ford-Fulkerson — cuello de botella' },
+  { id: 'optimizar', Icono: FaBolt,         label: 'Optimización', desc: 'AG + Gradiente — optimización completa' },
 ]
 
 export default function VistaEvaluar({
@@ -418,7 +422,7 @@ export default function VistaEvaluar({
             className={`ev-tab ${subVista === s.id ? 'activo' : ''}`}
             onClick={() => setSubVista(s.id)}
           >
-            <span className="ev-tab-icon">{s.icono}</span>
+            <span className="ev-tab-icon"><s.Icono /></span>
             <span className="ev-tab-texto">
               <strong>{s.label}</strong>
               <small>{s.desc}</small>
@@ -429,7 +433,7 @@ export default function VistaEvaluar({
 
       {sinDatos && (
         <div className="ev-aviso">
-          ⚠ No hay datos cargados. Ve a <em>Datos de la Red</em> y aplica los datos al sistema primero.
+          <FaExclamationTriangle /> No hay datos cargados. Ve a <em>Datos de la Red</em> y aplica los datos al sistema primero.
         </div>
       )}
 
@@ -468,7 +472,7 @@ export default function VistaEvaluar({
               onClick={calcularRuta}
               disabled={!rutaOrigen || !rutaDestino || loadRuta || sinDatos}
             >
-              {loadRuta ? <><span className="spinner-btn" />Calculando...</> : '🔍 Calcular ruta'}
+              {loadRuta ? <><span className="spinner-btn" />Calculando...</> : <><FaSearch /> Calcular ruta</>}
             </button>
           </div>
 
@@ -512,7 +516,7 @@ export default function VistaEvaluar({
               onClick={calcularFlujo}
               disabled={!flujoFuente || !flujoSumidero || loadFlujo || sinDatos}
             >
-              {loadFlujo ? <><span className="spinner-btn" />Calculando...</> : '🌊 Calcular flujo'}
+              {loadFlujo ? <><span className="spinner-btn" />Calculando...</> : <><FaWater /> Calcular flujo</>}
             </button>
           </div>
 

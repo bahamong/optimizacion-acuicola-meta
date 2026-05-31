@@ -75,6 +75,7 @@ class AristaDTO(BaseModel):
     capacidad: float
     distancia: float
     estado: str = "activa"
+    umbral_calidad: float = 0.0
 
 
 class CargaDatosDTO(BaseModel):
@@ -213,6 +214,7 @@ def cargar_datos(datos: CargaDatosDTO):
                 id_origen=ad.id_origen, id_destino=ad.id_destino,
                 costo_transporte=ad.costo_transporte, capacidad=ad.capacidad,
                 distancia=dist, estado=ad.estado,
+                umbral_calidad=ad.umbral_calidad,
             )
             grafo_actual.agregar_arista(arista)
 

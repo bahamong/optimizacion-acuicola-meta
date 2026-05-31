@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { FaExclamationTriangle, FaCheckCircle, FaTimes } from 'react-icons/fa'
 import Sidebar from './components/Sidebar.jsx'
 import VistaDatos from './components/VistaDatos.jsx'
 import VistaMapa from './components/VistaMapa.jsx'
@@ -72,6 +73,7 @@ export default function App() {
           capacidad:        Number(a.capacidad),
           distancia:        Number(a.distancia),
           estado:           a.estado   || 'activa',
+          umbral_calidad:   Number(a.umbral_calidad) || 0,
         })),
       }
       await api.cargarDatos(payload)
@@ -118,6 +120,7 @@ export default function App() {
           capacidad: Number(a.capacidad),
           distancia: Number(a.distancia),
           estado: a.estado || 'activa',
+          umbral_calidad: Number(a.umbral_calidad) || 0,
         })),
       }
       await api.cargarDatos(payload)
@@ -168,6 +171,7 @@ export default function App() {
           capacidad: Number(a.capacidad),
           distancia: Number(a.distancia),
           estado: a.estado || 'activa',
+          umbral_calidad: Number(a.umbral_calidad) || 0,
         })),
       }
       await api.cargarDatos(payload)
@@ -268,14 +272,14 @@ export default function App() {
 
         {error && (
           <div className="banner-error">
-            <span>⚠ {error}</span>
-            <button onClick={() => setError(null)}>✕</button>
+            <span><FaExclamationTriangle /> {error}</span>
+            <button onClick={() => setError(null)}><FaTimes /></button>
           </div>
         )}
         {ok && !error && (
           <div className="banner-ok">
-            <span>✓ {ok}</span>
-            <button onClick={() => setOk(null)}>✕</button>
+            <span><FaCheckCircle /> {ok}</span>
+            <button onClick={() => setOk(null)}><FaTimes /></button>
           </div>
         )}
 

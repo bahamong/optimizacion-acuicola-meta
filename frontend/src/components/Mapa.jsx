@@ -3,7 +3,7 @@
  *
  * Características:
  *  - Rutas reales via OSRM (OpenStreetMap routing), no líneas rectas
- *  - CartoDB Positron con nombres de ciudades
+ *  - Tiles de Google Maps con nombres de ciudades
  *  - Click en nodo  → panel edición (oferta / demanda / calidad / merma)
  *  - Click en ruta  → panel edición (situación: normal / gasolina alta /
  *                     vía deteriorada / vía bloqueada)
@@ -16,18 +16,41 @@ import {
   Polyline, Tooltip, useMapEvents,
 } from 'react-leaflet'
 import L from 'leaflet'
+import {
+  FaRoad, FaGasPump, FaHardHat, FaBan, FaTimes, FaDollarSign, FaBox,
+  FaExchangeAlt, FaRuler, FaShoppingCart, FaWarehouse, FaRecycle,
+  FaCheckCircle, FaExclamationTriangle, FaTimesCircle,
+} from 'react-icons/fa'
 import './Mapa.css'
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 const COLOR_NODO = { origen: '#ef4444', acopio: '#f59e0b', destino: '#22c55e' }
 const RADIO_NODO = { origen: 11, acopio: 9, destino: 7 }
 
+// Color para rutas marcadas "en riesgo" por umbral de calidad (6c)
+const COLOR_RIESGO = '#e11d48'
+
 const SITUACIONES = [
-  { id: 'normal',          label: 'Normal',                  mult: 1.00, color: '#22c55e', dash: null        },
-  { id: 'gasolina_alta',   label: '⛽ Gasolina alta (+15%)', mult: 1.15, color: '#f59e0b', dash: null        },
-  { id: 'via_deteriorada', label: '🚧 Vía deteriorada (+25%)',mult: 1.25, color: '#ef4444', dash: null       },
-  { id: 'via_bloqueada',   label: '🚫 Vía bloqueada',        mult: null, color: '#6b7280', dash: '6 4'      },
+  { id: 'normal',          label: 'Normal',                Icono: FaRoad,    mult: 1.00, color: '#22c55e', dash: null  },
+  { id: 'gasolina_alta',   label: 'Gasolina alta (+15%)',  Icono: FaGasPump, mult: 1.15, color: '#f59e0b', dash: null  },
+  { id: 'via_deteriorada', label: 'Vía deteriorada (+25%)',Icono: FaHardHat, mult: 1.25, color: '#ef4444', dash: null  },
+  { id: 'via_bloqueada',   label: 'Vía bloqueada',         Icono: FaBan,     mult: null, color: '#6b7280', dash: '6 4' },
 ]
+
+// ── Riesgo de ruta por umbral de calidad ──────────────────────────────────────
+// Una ruta está "en riesgo" si la calidad del nodo origen o destino cae por
+// debajo del umbral configurado en la ruta (0 = sin control).
+function rutaEnRiesgo(arista, nodos) {
+  const umbral = Number(arista.umbral_calidad) || 0
+  if (umbral <= 0) return false
+  const o = arista.origen || arista.id_origen
+  const d = arista.destino || arista.id_destino
+  const calidades = [o, d]
+    .map(id => nodos.find(n => n.id === id))
+    .filter(Boolean)
+    .map(n => (n.tasa_calidad ?? 1) * 100)
+  return calidades.some(c => c < umbral)
+}
 
 // ── OSRM routing ──────────────────────────────────────────────────────────────
 const OSRM = 'https://router.project-osrm.org/route/v1/driving'
@@ -154,7 +177,7 @@ function PanelNodo({ nodo, onGuardar, onCerrar }) {
       <div className="panel-cabecera">
         <span className={`panel-tipo tipo-${nodo.tipo}`}>{nodo.tipo}</span>
         <h3 className="panel-titulo">{nodo.id}</h3>
-        <button className="panel-cerrar" onClick={onCerrar}>✕</button>
+        <button className="panel-cerrar" onClick={onCerrar}><FaTimes /></button>
       </div>
 
       <div className="panel-cuerpo">
@@ -191,13 +214,6 @@ function PanelNodo({ nodo, onGuardar, onCerrar }) {
             <input type="number" min="0" value={d.capacidad} onChange={n('capacidad')} />
           </div>
 
-          <div className="pf">
-            <label>Tasa de merma diaria: <strong>{((d.tasa_merma ?? 0) * 100).toFixed(1)}%</strong></label>
-            <input type="range" min="0" max="0.5" step="0.005"
-              value={d.tasa_merma ?? 0} onChange={n('tasa_merma')} />
-            <span className="pf-hint">Fracción del inventario que se pierde por día</span>
-          </div>
-
           <div className="pf pf-calidad">
             <label>Criterios de calidad</label>
             <div className="calidad-toggle">
@@ -206,10 +222,17 @@ function PanelNodo({ nodo, onGuardar, onCerrar }) {
                 value={d.tasa_calidad ?? 1} onChange={n('tasa_calidad')} />
             </div>
             <div className={`calidad-badge ${(d.tasa_calidad ?? 1) >= 0.7 ? 'ok' : (d.tasa_calidad ?? 1) >= 0.4 ? 'warn' : 'mal'}`}>
-              {(d.tasa_calidad ?? 1) >= 0.7 ? '✓ Cumple criterios de calidad'
-               : (d.tasa_calidad ?? 1) >= 0.4 ? '⚠ Calidad deficiente'
-               : '✗ No cumple criterios — flujo penalizado'}
+              {(d.tasa_calidad ?? 1) >= 0.7 ? <><FaCheckCircle /> Cumple criterios de calidad</>
+               : (d.tasa_calidad ?? 1) >= 0.4 ? <><FaExclamationTriangle /> Calidad deficiente</>
+               : <><FaTimesCircle /> No cumple criterios — flujo penalizado</>}
             </div>
+          </div>
+
+          <div className="pf">
+            <label>Merma diaria (derivada de la calidad)</label>
+            <input className="pf-readonly" readOnly
+              value={`${((1 - (d.tasa_calidad ?? 1)) * 100).toFixed(1)}%`} />
+            <span className="pf-hint">merma = 100% − calidad</span>
           </div>
 
           <div className="pf">
@@ -221,7 +244,11 @@ function PanelNodo({ nodo, onGuardar, onCerrar }) {
 
       <div className="panel-pie">
         <button className="panel-btn-sec" onClick={onCerrar}>Cancelar</button>
-        <button className="panel-btn-prim" onClick={() => onGuardar(d)}>Guardar cambios</button>
+        <button className="panel-btn-prim" onClick={() => onGuardar(
+          nodo.tipo === 'acopio'
+            ? { ...d, tasa_merma: Math.round((1 - (d.tasa_calidad ?? 1)) * 10000) / 10000 }
+            : d
+        )}>Guardar cambios</button>
       </div>
     </div>
   )
@@ -253,7 +280,7 @@ function PanelArista({ arista, nodos, onGuardar, onCerrar }) {
         <h3 className="panel-titulo" style={{ fontSize: '0.82rem' }}>
           {orig?.nombre || arista.origen} → {dest?.nombre || arista.destino}
         </h3>
-        <button className="panel-cerrar" onClick={onCerrar}>✕</button>
+        <button className="panel-cerrar" onClick={onCerrar}><FaTimes /></button>
       </div>
 
       <div className="panel-cuerpo">
@@ -266,7 +293,7 @@ function PanelArista({ arista, nodos, onGuardar, onCerrar }) {
               style={{ '--sit-color': s.color }}
               onClick={() => seleccionar(s)}
             >
-              {s.label}
+              <s.Icono /> {s.label}
             </button>
           ))}
         </div>
@@ -291,7 +318,7 @@ function PanelArista({ arista, nodos, onGuardar, onCerrar }) {
 
         {sit === 'via_bloqueada' && (
           <div className="bloqueo-aviso">
-            🚫 Esta ruta quedará bloqueada — el sistema buscará rutas alternativas.
+            <FaBan /> Esta ruta quedará bloqueada — el sistema buscará rutas alternativas.
           </div>
         )}
       </div>
@@ -320,6 +347,7 @@ function Leyenda() {
     { color: '#f59e0b', dash: false, label: 'Con flujo — alta demanda (>60%)' },
     { color: '#ef4444', dash: false, label: 'Con flujo — saturada (>85%)' },
     { color: '#6b7280', dash: true,  label: 'Bloqueada / fuera de servicio' },
+    { color: COLOR_RIESGO, dash: true, label: 'En riesgo — calidad bajo umbral' },
     { color: '#7c3aed', dash: true,  label: 'Ruta óptima — Dijkstra' },
   ]
   return (
@@ -435,12 +463,12 @@ export default function Mapa({
         scrollWheelZoom
         zoomControl
       >
-        {/* CartoDB Positron con nombres de ciudades */}
+        {/* Tiles de Google Maps (vista de calles con nombres de ciudades) */}
         <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-          attribution='&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
-          subdomains="abcd"
-          maxZoom={19}
+          url="https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+          attribution='&copy; Google Maps'
+          subdomains={['mt0', 'mt1', 'mt2', 'mt3']}
+          maxZoom={20}
         />
 
         {/* Cerrar panel al hacer click en el mapa vacío */}
@@ -454,7 +482,11 @@ export default function Mapa({
           const path = roadPaths[key]
           if (!path || path.length < 2) return null
 
-          const estilo = estiloArista(a)
+          const enRiesgo = rutaEnRiesgo(a, nodos)
+          const base = estiloArista(a)
+          const estilo = enRiesgo
+            ? { ...base, color: COLOR_RIESGO, dashArray: '5 4', weight: Math.max(base.weight, 3), opacity: 0.9 }
+            : base
           const nO = nodos.find(n => n.id === origenId)
           const nD = nodos.find(n => n.id === destinoId)
 
@@ -472,11 +504,12 @@ export default function Mapa({
             >
               <Tooltip sticky direction="center" className="tt-arista">
                 <strong>{nO?.nombre || origenId} → {nD?.nombre || destinoId}</strong>
-                <span>💰 Costo: ${(a.costo || a.costo_transporte || 0).toFixed(2)}/ton</span>
-                <span>📦 Capacidad: {a.capacidad} ton</span>
-                {(a.flujo || 0) > 0 && <span>🔄 Flujo: {Number(a.flujo).toFixed(1)} ton ({((a.utilizacion||0)*100).toFixed(0)}%)</span>}
-                <span>📏 Distancia: {a.distancia} km</span>
-                {a.estado === 'bloqueada' && <span className="tt-bloqueada">🚫 Vía bloqueada</span>}
+                <span><FaDollarSign /> Costo: ${(a.costo || a.costo_transporte || 0).toFixed(2)}/ton</span>
+                <span><FaBox /> Capacidad: {a.capacidad} ton</span>
+                {(a.flujo || 0) > 0 && <span><FaExchangeAlt /> Flujo: {Number(a.flujo).toFixed(1)} ton ({((a.utilizacion||0)*100).toFixed(0)}%)</span>}
+                <span><FaRuler /> Distancia: {a.distancia} km</span>
+                {a.estado === 'bloqueada' && <span className="tt-bloqueada"><FaBan /> Vía bloqueada</span>}
+                {enRiesgo && <span className="tt-riesgo"><FaExclamationTriangle /> En riesgo: calidad &lt; {a.umbral_calidad}%</span>}
                 <span className="tt-hint">Click para editar</span>
               </Tooltip>
             </Polyline>
@@ -523,13 +556,13 @@ export default function Mapa({
               {/* Tooltip hover */}
               <Tooltip direction="top" offset={[0, -10]} className="tt-nodo">
                 <strong>{nodo.nombre}</strong>
-                {nodo.tipo === 'origen'  && <span>📦 Oferta: {nodo.oferta} ton</span>}
-                {nodo.tipo === 'destino' && <span>🛒 Demanda: {nodo.demanda} ton</span>}
+                {nodo.tipo === 'origen'  && <span><FaBox /> Oferta: {nodo.oferta} ton</span>}
+                {nodo.tipo === 'destino' && <span><FaShoppingCart /> Demanda: {nodo.demanda} ton</span>}
                 {nodo.tipo === 'acopio'  && <>
-                  <span>🏢 Cap: {nodo.capacidad} ton</span>
-                  <span>♻ Merma: {((nodo.tasa_merma||0)*100).toFixed(1)}%/día</span>
+                  <span><FaWarehouse /> Cap: {nodo.capacidad} ton</span>
+                  <span><FaRecycle /> Merma: {((nodo.tasa_merma||0)*100).toFixed(1)}%/día</span>
                   <span style={{ color: calidad < 0.5 ? '#ef4444' : '#22c55e' }}>
-                    {calidad >= 0.7 ? '✓' : '⚠'} Calidad: {Math.round(calidad*100)}%
+                    {calidad >= 0.7 ? <FaCheckCircle /> : <FaExclamationTriangle />} Calidad: {Math.round(calidad*100)}%
                   </span>
                 </>}
                 <span className="tt-hint">Click para editar</span>
