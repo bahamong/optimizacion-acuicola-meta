@@ -130,9 +130,25 @@ def verificar():
         sys.exit(1)
 
 # ── Paso 2: Instalar dependencias ─────────────────────────────────────────────
+def _backend_ok() -> bool:
+    """Devuelve True si los paquetes críticos del backend están instalados en PY."""
+    paquetes = ["fastapi", "uvicorn", "supabase", "networkx", "numpy", "deap"]
+    for pkg in paquetes:
+        r = subprocess.run(
+            PY + ["-c", f"import {pkg}"],
+            capture_output=True,
+        )
+        if r.returncode != 0:
+            return False
+    return True
+
+
 def instalar():
     node_modules = FRONTEND_DIR / "node_modules"
-    ya_instalado = MARKER.exists() and node_modules.exists()
+    # Verificar que los paquetes críticos estén instalados en Python 3.11
+    deps_python_ok = _backend_ok()
+    deps_npm_ok    = node_modules.exists() and (node_modules / "tailwindcss").exists()
+    ya_instalado   = MARKER.exists() and deps_python_ok and deps_npm_ok
 
     if ya_instalado and not FORZAR_INSTALL:
         print(bold("\n[2/3] Dependencias ya instaladas (omitido)"))
