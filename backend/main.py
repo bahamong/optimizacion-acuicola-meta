@@ -16,7 +16,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.rutas import router
-from database.db import crear_tablas
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -47,10 +46,8 @@ app.include_router(router)
 
 @app.on_event("startup")
 async def startup():
-    """Al arrancar: crear tablas de BD y cargar la red por defecto."""
-    logger.info("Iniciando servidor Acuícola Real del Meta...")
-    crear_tablas()
-    # Pre-cargar la red por defecto para que la API esté lista sin llamada previa
+    """Al arrancar: cargar la red por defecto."""
+    logger.info("Iniciando servidor Acuícola Real del Meta (Supabase)...")
     try:
         from api.rutas import cargar_red_defecto
         cargar_red_defecto()

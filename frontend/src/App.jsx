@@ -5,7 +5,6 @@ import VistaDatos from './components/VistaDatos.jsx'
 import VistaMapa from './components/VistaMapa.jsx'
 import VistaEvaluar from './components/VistaEvaluar.jsx'
 import * as api from './services/api.js'
-import './App.css'
 
 export default function App() {
   const [vista,         setVista]         = useState('datos')
@@ -21,7 +20,6 @@ export default function App() {
   const [ok,            setOk]            = useState(null)
   const [sincronizado,  setSincronizado]  = useState(false)
 
-  // ── Carga inicial ──────────────────────────────────────────────────────────
   const cargarRedDefecto = useCallback(async () => {
     try {
       setCargando(true)
@@ -45,7 +43,6 @@ export default function App() {
 
   useEffect(() => { cargarRedDefecto() }, [cargarRedDefecto])
 
-  // ── Aplicar datos al sistema ───────────────────────────────────────────────
   const aplicarAlSistema = async () => {
     try {
       setCargando(true)
@@ -92,13 +89,11 @@ export default function App() {
     }
   }
 
-  // ── Edición desde el mapa (auto-aplica al backend) ────────────────────────
   const editarNodoDesdeMapа = async (nodoId, cambios) => {
     const nodosActualizados = nodos.map(n =>
       n.id === nodoId ? { ...n, ...cambios } : n
     )
     setNodos(nodosActualizados)
-    // Construir payload completo y enviar
     try {
       const payload = {
         nodos: nodosActualizados.map(n => ({
@@ -139,12 +134,12 @@ export default function App() {
       if (o === origenId && d === destinoId) {
         return {
           ...a,
-          costo:          cambios.costo        ?? (a.costo || a.costo_transporte),
-          costo_transporte: cambios.costo      ?? (a.costo || a.costo_transporte),
-          capacidad:      cambios.capacidad     ?? a.capacidad,
-          estado:         cambios.estado        ?? a.estado ?? 'activa',
-          _situacion:     cambios._situacion    ?? a._situacion,
-          _costoBase:     cambios._costoBase    ?? a._costoBase,
+          costo:            cambios.costo        ?? (a.costo || a.costo_transporte),
+          costo_transporte: cambios.costo        ?? (a.costo || a.costo_transporte),
+          capacidad:        cambios.capacidad     ?? a.capacidad,
+          estado:           cambios.estado        ?? a.estado ?? 'activa',
+          _situacion:       cambios._situacion    ?? a._situacion,
+          _costoBase:       cambios._costoBase    ?? a._costoBase,
         }
       }
       return a
@@ -183,7 +178,6 @@ export default function App() {
     }
   }
 
-  // ── Optimización ───────────────────────────────────────────────────────────
   const ejecutarOptimizacion = async () => {
     try {
       setCargando(true)
@@ -212,7 +206,6 @@ export default function App() {
     }
   }
 
-  // ── Vistas ─────────────────────────────────────────────────────────────────
   const TITULOS = {
     datos:   'Gestión de Datos de la Red',
     mapa:    'Visualización de la Red',
@@ -257,33 +250,39 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="flex h-screen overflow-hidden bg-slate-100 font-sans">
       <Sidebar vistaActual={vista} onCambiar={setVista} sincronizado={sincronizado} />
 
-      <div className="app-contenido">
-        <div className="app-topbar">
-          <span className="topbar-titulo">{TITULOS[vista]}</span>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Topbar */}
+        <div className="h-[52px] bg-white border-b border-slate-200 flex items-center justify-between px-6 flex-shrink-0 shadow-sm">
+          <span className="text-[0.95rem] font-bold text-slate-800 tracking-tight">
+            {TITULOS[vista]}
+          </span>
           {cargando && (
-            <span className="topbar-cargando">
-              <span className="spinner-mini" /> {msgCarga || 'Procesando...'}
+            <span className="flex items-center gap-2 text-[0.82rem] text-indigo-500 font-medium">
+              <span className="inline-block w-3.5 h-3.5 border-2 border-indigo-100 border-t-indigo-600 rounded-full animate-spin" />
+              {msgCarga || 'Procesando...'}
             </span>
           )}
         </div>
 
+        {/* Banners */}
         {error && (
-          <div className="banner-error">
-            <span><FaExclamationTriangle /> {error}</span>
-            <button onClick={() => setError(null)}><FaTimes /></button>
+          <div className="flex items-center justify-between px-6 py-2.5 text-sm font-medium bg-red-50 text-red-800 border-b border-red-200 flex-shrink-0">
+            <span className="flex items-center gap-2"><FaExclamationTriangle /> {error}</span>
+            <button className="opacity-60 hover:opacity-100 p-1" onClick={() => setError(null)}><FaTimes /></button>
           </div>
         )}
         {ok && !error && (
-          <div className="banner-ok">
-            <span><FaCheckCircle /> {ok}</span>
-            <button onClick={() => setOk(null)}><FaTimes /></button>
+          <div className="flex items-center justify-between px-6 py-2.5 text-sm font-medium bg-green-50 text-green-800 border-b border-green-200 flex-shrink-0">
+            <span className="flex items-center gap-2"><FaCheckCircle /> {ok}</span>
+            <button className="opacity-60 hover:opacity-100 p-1" onClick={() => setOk(null)}><FaTimes /></button>
           </div>
         )}
 
-        <div className="app-vista">
+        {/* Vista principal */}
+        <div className="flex-1 overflow-y-auto p-6">
           {vistas[vista]}
         </div>
       </div>

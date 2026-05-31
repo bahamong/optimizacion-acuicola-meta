@@ -1,15 +1,3 @@
-/**
- * Mapa.jsx — Visualización geoespacial de la red logística
- *
- * Características:
- *  - Rutas reales via OSRM (OpenStreetMap routing), no líneas rectas
- *  - Tiles de Google Maps con nombres de ciudades
- *  - Click en nodo  → panel edición (oferta / demanda / calidad / merma)
- *  - Click en ruta  → panel edición (situación: normal / gasolina alta /
- *                     vía deteriorada / vía bloqueada)
- *  - Indicador de progreso mientras carga rutas desde OSRM
- */
-
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   MapContainer, TileLayer, CircleMarker,
@@ -21,13 +9,11 @@ import {
   FaExchangeAlt, FaRuler, FaShoppingCart, FaWarehouse, FaRecycle,
   FaCheckCircle, FaExclamationTriangle, FaTimesCircle,
 } from 'react-icons/fa'
-import './Mapa.css'
+import { obtenerRutasCache, guardarRutasCache } from '../services/api.js'
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 const COLOR_NODO = { origen: '#ef4444', acopio: '#f59e0b', destino: '#22c55e' }
 const RADIO_NODO = { origen: 11, acopio: 9, destino: 7 }
-
-// Color para rutas marcadas "en riesgo" por umbral de calidad (6c)
 const COLOR_RIESGO = '#e11d48'
 
 const SITUACIONES = [
@@ -37,22 +23,18 @@ const SITUACIONES = [
   { id: 'via_bloqueada',   label: 'Vía bloqueada',         Icono: FaBan,     mult: null, color: '#6b7280', dash: '6 4' },
 ]
 
-// ── Riesgo de ruta por umbral de calidad ──────────────────────────────────────
-// Una ruta está "en riesgo" si la calidad del nodo origen o destino cae por
-// debajo del umbral configurado en la ruta (0 = sin control).
 function rutaEnRiesgo(arista, nodos) {
   const umbral = Number(arista.umbral_calidad) || 0
   if (umbral <= 0) return false
   const o = arista.origen || arista.id_origen
   const d = arista.destino || arista.id_destino
-  const calidades = [o, d]
+  return [o, d]
     .map(id => nodos.find(n => n.id === id))
     .filter(Boolean)
     .map(n => (n.tasa_calidad ?? 1) * 100)
-  return calidades.some(c => c < umbral)
+    .some(c => c < umbral)
 }
 
-// ── OSRM routing ──────────────────────────────────────────────────────────────
 const OSRM = 'https://router.project-osrm.org/route/v1/driving'
 
 async function fetchRoadPath(lat1, lng1, lat2, lng2) {
@@ -62,7 +44,6 @@ async function fetchRoadPath(lat1, lng1, lat2, lng2) {
     if (!res.ok) return null
     const data = await res.json()
     if (data.code === 'Ok' && data.routes?.length > 0) {
-      // OSRM usa [lng, lat] → Leaflet necesita [lat, lng]
       return data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng])
     }
   } catch {}
@@ -71,8 +52,8 @@ async function fetchRoadPath(lat1, lng1, lat2, lng2) {
 
 async function cargarTodasLasRutas(aristas, nodos, onProgreso) {
   const paths = {}
-  const BATCH = 4          // peticiones concurrentes
-  const PAUSA = 250        // ms entre lotes para respetar rate-limit de OSRM
+  const BATCH = 4
+  const PAUSA = 250
 
   const tareas = aristas
     .map(a => ({
@@ -96,40 +77,17 @@ async function cargarTodasLasRutas(aristas, nodos, onProgreso) {
       await new Promise(r => setTimeout(r, PAUSA))
     }
   }
-
   return paths
 }
 
-// ── Utilidades de estilo de aristas ──────────────────────────────────────────
-/**
- * Lógica de colores:
- *
- *  ANTES de optimizar (flujo = 0 en todas las rutas):
- *    - Activa disponible → azul claro   (#60a5fa)  línea delgada
- *    - Bloqueada         → gris dashed  (#6b7280)
- *
- *  DESPUÉS de optimizar (el backend asigna flujo > 0 a rutas activas):
- *    - Sin flujo (no seleccionada por AG) → gris neutro (#94a3b8)
- *    - Flujo normal  (util < 60%)         → verde       (#22c55e)
- *    - Alta demanda  (util 60–85%)        → naranja     (#f59e0b)
- *    - Saturada      (util > 85%)         → rojo        (#ef4444)
- *
- *  Situaciones manuales (usuario edita en mapa):
- *    - gasolina_alta   → naranja
- *    - via_deteriorada → rojo
- *    - via_bloqueada   → gris dashed
- */
 function estiloArista(arista) {
-  // 1. Bloqueada siempre va en gris discontinuo
   if (arista.estado === 'bloqueada') {
     return { color: '#6b7280', weight: 1.5, opacity: 0.6, dashArray: '7 5' }
   }
-
   const sit  = arista._situacion || 'normal'
   const util = arista.utilizacion || 0
   const flujo = arista.flujo || 0
 
-  // 2. Situación manual definida por el usuario (gasolina, deterioro)
   if (sit !== 'normal') {
     const s = SITUACIONES.find(x => x.id === sit) || SITUACIONES[0]
     return {
@@ -139,133 +97,114 @@ function estiloArista(arista) {
       dashArray: s.dash,
     }
   }
-
-  // 3. Sin flujo → la ruta existe pero no tiene caudal asignado
   if (flujo <= 0) {
-    // Azul claro = disponible, esperando optimización
     return { color: '#60a5fa', weight: 1.4, opacity: 0.55, dashArray: null }
   }
-
-  // 4. Con flujo (post-optimización): color según utilización
   let color
-  if      (util >= 0.85) color = '#ef4444'  // saturada → rojo
-  else if (util >= 0.60) color = '#f59e0b'  // alta demanda → naranja
-  else                   color = '#22c55e'  // normal → verde
-
-  return {
-    color,
-    weight:    Math.max(2.5, Math.min(6, util * 7 + 2)),
-    opacity:   0.88,
-    dashArray: null,
-  }
+  if      (util >= 0.85) color = '#ef4444'
+  else if (util >= 0.60) color = '#f59e0b'
+  else                   color = '#22c55e'
+  return { color, weight: Math.max(2.5, Math.min(6, util * 7 + 2)), opacity: 0.88, dashArray: null }
 }
 
-// ── Cerrar panel al hacer click en el mapa ────────────────────────────────────
 function CerrarAlClickMapa({ onCerrar }) {
   useMapEvents({ click: onCerrar })
   return null
 }
 
-// ── Panel de edición: Nodo ────────────────────────────────────────────────────
 function PanelNodo({ nodo, onGuardar, onCerrar }) {
   const [d, setD] = useState({ ...nodo })
   const n = k => e => setD(p => ({ ...p, [k]: Number(e.target.value) }))
   const s = k => e => setD(p => ({ ...p, [k]: e.target.value }))
 
   return (
-    <div className="mapa-panel">
-      <div className="panel-cabecera">
-        <span className={`panel-tipo tipo-${nodo.tipo}`}>{nodo.tipo}</span>
-        <h3 className="panel-titulo">{nodo.id}</h3>
-        <button className="panel-cerrar" onClick={onCerrar}><FaTimes /></button>
+    <div className="absolute top-3 right-3 z-[1000] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-[300px] text-white text-sm">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-700">
+        <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase
+          ${nodo.tipo === 'origen' ? 'bg-red-500/20 text-red-300' :
+            nodo.tipo === 'acopio' ? 'bg-amber-500/20 text-amber-300' :
+            'bg-green-500/20 text-green-300'}`}>
+          {nodo.tipo}
+        </span>
+        <h3 className="font-bold flex-1 text-sm">{nodo.id}</h3>
+        <button className="text-slate-400 hover:text-white" onClick={onCerrar}><FaTimes /></button>
       </div>
 
-      <div className="panel-cuerpo">
-        <div className="pf">
-          <label>Nombre</label>
-          <input value={d.nombre} onChange={s('nombre')} />
+      <div className="p-4 flex flex-col gap-3 max-h-[calc(100vh-200px)] overflow-y-auto">
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-slate-400">Nombre</label>
+          <input className="bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
+            value={d.nombre} onChange={s('nombre')} />
         </div>
 
         {nodo.tipo === 'origen' && <>
-          <div className="pf">
-            <label>Oferta disponible (ton)</label>
-            <input type="number" min="0" value={d.oferta} onChange={n('oferta')} />
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-slate-400">Oferta disponible (ton)</label>
+            <input type="number" min="0" className="bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
+              value={d.oferta} onChange={n('oferta')} />
           </div>
-          <div className="pf">
-            <label>Capacidad producción (ton)</label>
-            <input type="number" min="0" value={d.capacidad} onChange={n('capacidad')} />
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-slate-400">Capacidad producción (ton)</label>
+            <input type="number" min="0" className="bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
+              value={d.capacidad} onChange={n('capacidad')} />
           </div>
         </>}
 
         {nodo.tipo === 'destino' && <>
-          <div className="pf">
-            <label>Demanda requerida (ton)</label>
-            <input type="number" min="0" value={d.demanda} onChange={n('demanda')} />
-          </div>
-          <div className="pf">
-            <label>Precio venta ($/ton)</label>
-            <input type="number" min="0" value={d.precio_venta ?? 250} onChange={n('precio_venta')} />
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-slate-400">Demanda requerida (ton)</label>
+            <input type="number" min="0" className="bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
+              value={d.demanda} onChange={n('demanda')} />
           </div>
         </>}
 
         {nodo.tipo === 'acopio' && <>
-          <div className="pf">
-            <label>Capacidad almacenamiento (ton)</label>
-            <input type="number" min="0" value={d.capacidad} onChange={n('capacidad')} />
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-slate-400">Capacidad almacenamiento (ton)</label>
+            <input type="number" min="0" className="bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
+              value={d.capacidad} onChange={n('capacidad')} />
           </div>
-
-          <div className="pf pf-calidad">
-            <label>Criterios de calidad</label>
-            <div className="calidad-toggle">
-              <span>Tasa de calidad: <strong>{Math.round((d.tasa_calidad ?? 1) * 100)}%</strong></span>
-              <input type="range" min="0" max="1" step="0.05"
-                value={d.tasa_calidad ?? 1} onChange={n('tasa_calidad')} />
-            </div>
-            <div className={`calidad-badge ${(d.tasa_calidad ?? 1) >= 0.7 ? 'ok' : (d.tasa_calidad ?? 1) >= 0.4 ? 'warn' : 'mal'}`}>
-              {(d.tasa_calidad ?? 1) >= 0.7 ? <><FaCheckCircle /> Cumple criterios de calidad</>
-               : (d.tasa_calidad ?? 1) >= 0.4 ? <><FaExclamationTriangle /> Calidad deficiente</>
-               : <><FaTimesCircle /> No cumple criterios — flujo penalizado</>}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-slate-400">Tasa de calidad: <strong className="text-white">{Math.round((d.tasa_calidad ?? 1) * 100)}%</strong></label>
+            <input type="range" min="0" max="1" step="0.05" value={d.tasa_calidad ?? 1} onChange={n('tasa_calidad')}
+              className="w-full accent-indigo-500" />
+            <div className={`text-xs px-2 py-1 rounded ${(d.tasa_calidad ?? 1) >= 0.7 ? 'bg-green-500/20 text-green-300' : (d.tasa_calidad ?? 1) >= 0.4 ? 'bg-amber-500/20 text-amber-300' : 'bg-red-500/20 text-red-300'}`}>
+              {(d.tasa_calidad ?? 1) >= 0.7 ? <><FaCheckCircle className="inline mr-1" />Cumple criterios</> : (d.tasa_calidad ?? 1) >= 0.4 ? <><FaExclamationTriangle className="inline mr-1" />Calidad deficiente</> : <><FaTimesCircle className="inline mr-1" />No cumple — penaliza flujo</>}
             </div>
           </div>
-
-          <div className="pf">
-            <label>Merma diaria (derivada de la calidad)</label>
-            <input className="pf-readonly" readOnly
-              value={`${((1 - (d.tasa_calidad ?? 1)) * 100).toFixed(1)}%`} />
-            <span className="pf-hint">merma = 100% − calidad</span>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-slate-400">Merma (derivada de calidad)</label>
+            <input className="bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-slate-300"
+              readOnly value={`${((1 - (d.tasa_calidad ?? 1)) * 100).toFixed(1)}%`} />
           </div>
-
-          <div className="pf">
-            <label>Costo operación ($/día)</label>
-            <input type="number" min="0" value={d.costo_operacion ?? 0} onChange={n('costo_operacion')} />
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-slate-400">Costo operación ($/día)</label>
+            <input type="number" min="0" className="bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
+              value={d.costo_operacion ?? 0} onChange={n('costo_operacion')} />
           </div>
         </>}
       </div>
 
-      <div className="panel-pie">
-        <button className="panel-btn-sec" onClick={onCerrar}>Cancelar</button>
-        <button className="panel-btn-prim" onClick={() => onGuardar(
-          nodo.tipo === 'acopio'
-            ? { ...d, tasa_merma: Math.round((1 - (d.tasa_calidad ?? 1)) * 10000) / 10000 }
-            : d
-        )}>Guardar cambios</button>
+      <div className="flex gap-2 px-4 py-3 border-t border-slate-700">
+        <button className="flex-1 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-sm transition-colors" onClick={onCerrar}>Cancelar</button>
+        <button className="flex-1 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-semibold transition-colors"
+          onClick={() => onGuardar(nodo.tipo === 'acopio' ? { ...d, tasa_merma: Math.round((1 - (d.tasa_calidad ?? 1)) * 10000) / 10000 } : d)}>
+          Guardar
+        </button>
       </div>
     </div>
   )
 }
 
-// ── Panel de edición: Arista ──────────────────────────────────────────────────
 function PanelArista({ arista, nodos, onGuardar, onCerrar }) {
   const costoBase = useRef(arista._costoBase ?? arista.costo ?? arista.costo_transporte ?? 0)
-  const [sit,     setSit]     = useState(arista._situacion || 'normal')
-  const [costo,   setCosto]   = useState(Number((arista.costo || arista.costo_transporte || 0).toFixed(2)))
-  const [cap,     setCap]     = useState(Number(arista.capacidad || 0))
+  const [sit,   setSit]   = useState(arista._situacion || 'normal')
+  const [costo, setCosto] = useState(Number((arista.costo || arista.costo_transporte || 0).toFixed(2)))
+  const [cap,   setCap]   = useState(Number(arista.capacidad || 0))
 
   const seleccionar = (s) => {
     setSit(s.id)
-    if (s.id === 'via_bloqueada') {
-      // no cambia el costo, cambia el estado
-    } else if (s.mult !== null) {
+    if (s.id !== 'via_bloqueada' && s.mult !== null) {
       setCosto(Number((costoBase.current * s.mult).toFixed(2)))
     }
   }
@@ -274,23 +213,20 @@ function PanelArista({ arista, nodos, onGuardar, onCerrar }) {
   const dest = nodos.find(n => n.id === (arista.destino || arista.id_destino))
 
   return (
-    <div className="mapa-panel">
-      <div className="panel-cabecera">
-        <span className="panel-tipo tipo-ruta">ruta</span>
-        <h3 className="panel-titulo" style={{ fontSize: '0.82rem' }}>
-          {orig?.nombre || arista.origen} → {dest?.nombre || arista.destino}
-        </h3>
-        <button className="panel-cerrar" onClick={onCerrar}><FaTimes /></button>
+    <div className="absolute top-3 right-3 z-[1000] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-[300px] text-white text-sm">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-700">
+        <span className="px-2 py-0.5 rounded text-xs font-bold uppercase bg-indigo-500/20 text-indigo-300">ruta</span>
+        <h3 className="font-bold flex-1 text-xs">{orig?.nombre || arista.origen} → {dest?.nombre || arista.destino}</h3>
+        <button className="text-slate-400 hover:text-white" onClick={onCerrar}><FaTimes /></button>
       </div>
 
-      <div className="panel-cuerpo">
-        <p className="pf-label-sec">Situación actual de la vía</p>
-        <div className="situaciones-grid">
+      <div className="p-4 flex flex-col gap-3">
+        <p className="text-xs text-slate-400 uppercase tracking-wide">Situación de la vía</p>
+        <div className="grid grid-cols-2 gap-2">
           {SITUACIONES.map(s => (
-            <button
-              key={s.id}
-              className={`sit-btn ${sit === s.id ? 'activo' : ''}`}
-              style={{ '--sit-color': s.color }}
+            <button key={s.id}
+              className={`flex items-center gap-2 px-2 py-2 rounded border text-xs transition-all ${sit === s.id ? 'border-current font-bold opacity-100' : 'border-slate-600 text-slate-400 hover:border-slate-400'}`}
+              style={sit === s.id ? { borderColor: s.color, color: s.color, background: s.color + '20' } : {}}
               onClick={() => seleccionar(s)}
             >
               <s.Icono /> {s.label}
@@ -300,38 +236,35 @@ function PanelArista({ arista, nodos, onGuardar, onCerrar }) {
 
         {sit !== 'via_bloqueada' && (
           <>
-            <div className="pf" style={{ marginTop: '0.8rem' }}>
-              <label>Costo de transporte ($/ton)</label>
-              <div className="pf-row">
-                <input type="number" min="0" step="0.5" value={costo}
-                  onChange={e => setCosto(Number(e.target.value))} />
-                <span className="pf-hint-inline">Base: ${costoBase.current.toFixed(2)}</span>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-400">Costo de transporte ($/ton)</label>
+              <div className="flex items-center gap-2">
+                <input type="number" min="0" step="0.5"
+                  className="flex-1 bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
+                  value={costo} onChange={e => setCosto(Number(e.target.value))} />
+                <span className="text-xs text-slate-500">Base: ${costoBase.current.toFixed(2)}</span>
               </div>
             </div>
-            <div className="pf">
-              <label>Capacidad máxima (ton)</label>
-              <input type="number" min="1" value={cap}
-                onChange={e => setCap(Number(e.target.value))} />
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-400">Capacidad máxima (ton)</label>
+              <input type="number" min="1"
+                className="bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
+                value={cap} onChange={e => setCap(Number(e.target.value))} />
             </div>
           </>
         )}
 
         {sit === 'via_bloqueada' && (
-          <div className="bloqueo-aviso">
-            <FaBan /> Esta ruta quedará bloqueada — el sistema buscará rutas alternativas.
+          <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded p-2 text-red-300 text-xs">
+            <FaBan /> Esta ruta quedará bloqueada.
           </div>
         )}
       </div>
 
-      <div className="panel-pie">
-        <button className="panel-btn-sec" onClick={onCerrar}>Cancelar</button>
-        <button className="panel-btn-prim" onClick={() => onGuardar({
-          _situacion: sit,
-          _costoBase: costoBase.current,
-          costo:      costo,
-          capacidad:  cap,
-          estado:     sit === 'via_bloqueada' ? 'bloqueada' : 'activa',
-        })}>
+      <div className="flex gap-2 px-4 py-3 border-t border-slate-700">
+        <button className="flex-1 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-sm transition-colors" onClick={onCerrar}>Cancelar</button>
+        <button className="flex-1 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-semibold transition-colors"
+          onClick={() => onGuardar({ _situacion: sit, _costoBase: costoBase.current, costo, capacidad: cap, estado: sit === 'via_bloqueada' ? 'bloqueada' : 'activa' })}>
           Aplicar
         </button>
       </div>
@@ -339,44 +272,39 @@ function PanelArista({ arista, nodos, onGuardar, onCerrar }) {
   )
 }
 
-// ── Leyenda ───────────────────────────────────────────────────────────────────
 function Leyenda() {
   const rutas = [
-    { color: '#60a5fa', dash: false, label: 'Disponible (sin flujo aún)' },
+    { color: '#60a5fa', dash: false, label: 'Disponible (sin flujo)' },
     { color: '#22c55e', dash: false, label: 'Con flujo — normal' },
     { color: '#f59e0b', dash: false, label: 'Con flujo — alta demanda (>60%)' },
     { color: '#ef4444', dash: false, label: 'Con flujo — saturada (>85%)' },
-    { color: '#6b7280', dash: true,  label: 'Bloqueada / fuera de servicio' },
-    { color: COLOR_RIESGO, dash: true, label: 'En riesgo — calidad bajo umbral' },
+    { color: '#6b7280', dash: true,  label: 'Bloqueada' },
+    { color: COLOR_RIESGO, dash: true, label: 'En riesgo — calidad' },
     { color: '#7c3aed', dash: true,  label: 'Ruta óptima — Dijkstra' },
   ]
   return (
-    <div className="mapa-leyenda">
-      <p className="ley-titulo">Nodos</p>
-      {[['origen','Estación origen'],['acopio','Centro de acopio'],['destino','Supermercado']].map(([t,lbl]) => (
-        <div key={t} className="ley-fila">
-          <span className="ley-punto" style={{ background: COLOR_NODO[t] }} />
+    <div className="absolute bottom-3 left-3 z-[1000] bg-slate-900/95 border border-slate-700 rounded-xl p-3 text-xs text-white min-w-[180px]">
+      <p className="font-bold text-slate-300 mb-1.5">Nodos</p>
+      {[['origen','#ef4444','Estación origen'],['acopio','#f59e0b','Centro de acopio'],['destino','#22c55e','Supermercado']].map(([,c,lbl]) => (
+        <div key={lbl} className="flex items-center gap-2 mb-1">
+          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: c }} />
           {lbl}
         </div>
       ))}
-
-      <p className="ley-titulo" style={{ marginTop: '0.6rem' }}>Rutas</p>
+      <p className="font-bold text-slate-300 mb-1.5 mt-2">Rutas</p>
       {rutas.map((it, i) => (
-        <div key={i} className="ley-fila">
+        <div key={i} className="flex items-center gap-2 mb-1">
           {it.dash
-            ? <span className="ley-linea-dash" style={{ borderColor: it.color }} />
-            : <span className="ley-linea" style={{ background: it.color }} />
-          }
+            ? <span className="w-6 border-t-2 border-dashed flex-shrink-0" style={{ borderColor: it.color }} />
+            : <span className="w-6 h-0.5 flex-shrink-0" style={{ background: it.color }} />}
           {it.label}
         </div>
       ))}
-
-      <p className="ley-hint">Click en nodo o ruta para editar</p>
+      <p className="text-slate-500 mt-1.5">Click en nodo o ruta para editar</p>
     </div>
   )
 }
 
-// ── Componente principal ──────────────────────────────────────────────────────
 export default function Mapa({
   nodos      = [],
   aristas    = [],
@@ -385,31 +313,65 @@ export default function Mapa({
   onAristaEdit  = null,
 }) {
   const centro = [4.5709, -74.2973]
-
-  // Rutas reales de OSRM (cacheadas)
-  const [roadPaths,  setRoadPaths]  = useState({})
-  const [progreso,   setProgreso]   = useState(0)   // 0-100, 100 = listo
+  const [roadPaths,    setRoadPaths]    = useState({})
+  const [progreso,     setProgreso]     = useState(0)
+  const [cacheLoaded,  setCacheLoaded]  = useState(false)
   const aristasKeyRef = useRef('')
+  const [panel, setPanel] = useState(null)
 
-  // Panel de edición
-  const [panel, setPanel] = useState(null)   // {tipo:'nodo'|'arista', datos}
+  // ── Cargar caché de rutas desde Supabase (solo una vez al montar) ─────────
+  useEffect(() => {
+    let activo = true
+    async function cargarCache() {
+      try {
+        const res = await obtenerRutasCache()
+        if (activo && res.data && Object.keys(res.data).length > 0) {
+          setRoadPaths(res.data)
+          aristasKeyRef.current = '__from_cache__'
+        }
+      } catch { /* sin caché disponible */ }
+      if (activo) setCacheLoaded(true)
+    }
+    cargarCache()
+    return () => { activo = false }
+  }, [])
 
-  // ── Cargar rutas OSRM ────────────────────────────────────────────────────
+  // ── Cargar rutas OSRM solo para las que no están en caché ─────────────────
   const aristasKey = aristas.map(a => `${a.origen||a.id_origen}-${a.destino||a.id_destino}`).join('|')
 
   const cargarRutas = useCallback(async () => {
-    if (nodos.length === 0 || aristas.length === 0) return
-    if (aristasKey === aristasKeyRef.current) return   // sin cambios
+    if (!cacheLoaded || nodos.length === 0 || aristas.length === 0) return
+    if (aristasKey === aristasKeyRef.current) return
     aristasKeyRef.current = aristasKey
+
+    // Detectar qué rutas faltan en caché
+    const faltantes = aristas.filter(a => {
+      const key = `${a.origen || a.id_origen}→${a.destino || a.id_destino}`
+      return !roadPaths[key]
+    })
+
+    if (faltantes.length === 0) {
+      setProgreso(100)
+      return
+    }
+
     setProgreso(1)
-    const paths = await cargarTodasLasRutas(aristas, nodos, setProgreso)
-    setRoadPaths(paths)
+    const nuevas = await cargarTodasLasRutas(faltantes, nodos, p => {
+      setProgreso(Math.round(p * faltantes.length / aristas.length))
+    })
+    const todosLosPath = { ...roadPaths, ...nuevas }
+    setRoadPaths(todosLosPath)
     setProgreso(100)
-  }, [aristasKey, nodos.length])
+
+    // Guardar rutas nuevas en Supabase para futuras visitas
+    if (Object.keys(nuevas).length > 0) {
+      try { await guardarRutasCache(nuevas) } catch { /* no crítico */ }
+    }
+  }, [aristasKey, nodos.length, cacheLoaded])
 
   useEffect(() => { cargarRutas() }, [cargarRutas])
 
-  // ── Ruta Dijkstra con caminos reales ─────────────────────────────────────
+  // ── Ruta Dijkstra ─────────────────────────────────────────────────────────
   const caminoDijkstra = (() => {
     if (rutaDestacada.length < 2) return []
     const full = []
@@ -430,131 +392,88 @@ export default function Mapa({
     return full
   })()
 
-  // ── Handlers de edición ───────────────────────────────────────────────────
   const guardarNodo = (datos) => {
     if (onNodoEdit) onNodoEdit(datos.id, datos)
     setPanel(null)
   }
-
   const guardarArista = (cambios) => {
     const a = panel.datos
-    const origenId  = a.origen   || a.id_origen
-    const destinoId = a.destino  || a.id_destino
-    if (onAristaEdit) onAristaEdit(origenId, destinoId, cambios)
+    if (onAristaEdit) onAristaEdit(a.origen || a.id_origen, a.destino || a.id_destino, cambios)
     setPanel(null)
   }
-
   const cerrarPanel = () => setPanel(null)
 
   return (
-    <div className="mapa-wrapper">
+    <div className="relative w-full h-full">
       {/* Barra de progreso OSRM */}
       {progreso > 0 && progreso < 100 && (
-        <div className="mapa-progreso">
-          <div className="progreso-barra" style={{ width: `${progreso}%` }} />
+        <div className="absolute top-0 left-0 right-0 z-[1001] h-7 bg-slate-800/90 flex items-center gap-2 px-3 text-xs text-white">
+          <div className="flex-1 h-1.5 bg-slate-600 rounded overflow-hidden">
+            <div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${progreso}%` }} />
+          </div>
           <span>Cargando rutas reales... {progreso}%</span>
         </div>
       )}
 
-      <MapContainer
-        center={centro}
-        zoom={6}
-        className="mapa-leaflet"
-        scrollWheelZoom
-        zoomControl
-      >
-        {/* Tiles de Google Maps (vista de calles con nombres de ciudades) */}
+      <MapContainer center={centro} zoom={6} className="w-full h-full" scrollWheelZoom zoomControl>
         <TileLayer
           url="https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
           attribution='&copy; Google Maps'
           subdomains={['mt0', 'mt1', 'mt2', 'mt3']}
           maxZoom={20}
         />
-
-        {/* Cerrar panel al hacer click en el mapa vacío */}
         <CerrarAlClickMapa onCerrar={cerrarPanel} />
 
-        {/* ── Rutas de la red ──────────────────────────────────────────── */}
         {aristas.map((a, i) => {
           const origenId  = a.origen  || a.id_origen
           const destinoId = a.destino || a.id_destino
           const key = `${origenId}→${destinoId}`
           const path = roadPaths[key]
           if (!path || path.length < 2) return null
-
           const enRiesgo = rutaEnRiesgo(a, nodos)
           const base = estiloArista(a)
-          const estilo = enRiesgo
-            ? { ...base, color: COLOR_RIESGO, dashArray: '5 4', weight: Math.max(base.weight, 3), opacity: 0.9 }
-            : base
+          const estilo = enRiesgo ? { ...base, color: COLOR_RIESGO, dashArray: '5 4', weight: Math.max(base.weight, 3), opacity: 0.9 } : base
           const nO = nodos.find(n => n.id === origenId)
           const nD = nodos.find(n => n.id === destinoId)
-
           return (
-            <Polyline
-              key={`r-${i}`}
-              positions={path}
+            <Polyline key={`r-${i}`} positions={path}
               pathOptions={{ ...estilo, lineCap: 'round', lineJoin: 'round' }}
-              eventHandlers={{
-                click: (e) => {
-                  L.DomEvent.stopPropagation(e)
-                  setPanel({ tipo: 'arista', datos: a })
-                },
-              }}
-            >
-              <Tooltip sticky direction="center" className="tt-arista">
+              eventHandlers={{ click: (e) => { L.DomEvent.stopPropagation(e); setPanel({ tipo: 'arista', datos: a }) } }}>
+              <Tooltip sticky direction="center">
                 <strong>{nO?.nombre || origenId} → {nD?.nombre || destinoId}</strong>
                 <span><FaDollarSign /> Costo: ${(a.costo || a.costo_transporte || 0).toFixed(2)}/ton</span>
-                <span><FaBox /> Capacidad: {a.capacidad} ton</span>
-                {(a.flujo || 0) > 0 && <span><FaExchangeAlt /> Flujo: {Number(a.flujo).toFixed(1)} ton ({((a.utilizacion||0)*100).toFixed(0)}%)</span>}
-                <span><FaRuler /> Distancia: {a.distancia} km</span>
-                {a.estado === 'bloqueada' && <span className="tt-bloqueada"><FaBan /> Vía bloqueada</span>}
-                {enRiesgo && <span className="tt-riesgo"><FaExclamationTriangle /> En riesgo: calidad &lt; {a.umbral_calidad}%</span>}
-                <span className="tt-hint">Click para editar</span>
+                <span><FaBox /> Cap: {a.capacidad} ton</span>
+                {(a.flujo || 0) > 0 && <span><FaExchangeAlt /> Flujo: {Number(a.flujo).toFixed(1)} ({((a.utilizacion||0)*100).toFixed(0)}%)</span>}
+                <span><FaRuler /> {a.distancia} km</span>
+                {a.estado === 'bloqueada' && <span><FaBan /> Vía bloqueada</span>}
+                {enRiesgo && <span><FaExclamationTriangle /> En riesgo: calidad &lt; {a.umbral_calidad}%</span>}
+                <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Click para editar</span>
               </Tooltip>
             </Polyline>
           )
         })}
 
-        {/* ── Ruta Dijkstra destacada ──────────────────────────────────── */}
         {caminoDijkstra.length > 1 && (
-          <Polyline
-            positions={caminoDijkstra}
-            pathOptions={{ color: '#7c3aed', weight: 5, dashArray: '10 5', opacity: 0.95, lineCap: 'round' }}
-          />
+          <Polyline positions={caminoDijkstra}
+            pathOptions={{ color: '#7c3aed', weight: 5, dashArray: '10 5', opacity: 0.95, lineCap: 'round' }} />
         )}
 
-        {/* ── Nodos ────────────────────────────────────────────────────── */}
         {nodos.map(nodo => {
           const lat = nodo.lat ?? nodo.latitud
           const lng = nodo.lng ?? nodo.longitud
           if (lat === undefined || lng === undefined) return null
-
           const calidad = nodo.tasa_calidad ?? 1
-          const bordeColor = nodo.tipo === 'acopio' && calidad < 0.5
-            ? '#ef4444'   // rojo si calidad baja
-            : '#1e293b'
-
           return (
-            <CircleMarker
-              key={nodo.id}
-              center={[lat, lng]}
+            <CircleMarker key={nodo.id} center={[lat, lng]}
               radius={RADIO_NODO[nodo.tipo] || 7}
               pathOptions={{
                 fillColor:   COLOR_NODO[nodo.tipo] || '#64748b',
                 fillOpacity: 0.9,
-                color:       bordeColor,
+                color:       nodo.tipo === 'acopio' && calidad < 0.5 ? '#ef4444' : '#1e293b',
                 weight:      nodo.tipo === 'acopio' && calidad < 0.5 ? 3 : 1.5,
               }}
-              eventHandlers={{
-                click: (e) => {
-                  L.DomEvent.stopPropagation(e)
-                  setPanel({ tipo: 'nodo', datos: nodo })
-                },
-              }}
-            >
-              {/* Tooltip hover */}
-              <Tooltip direction="top" offset={[0, -10]} className="tt-nodo">
+              eventHandlers={{ click: (e) => { L.DomEvent.stopPropagation(e); setPanel({ tipo: 'nodo', datos: nodo }) } }}>
+              <Tooltip direction="top" offset={[0, -10]}>
                 <strong>{nodo.nombre}</strong>
                 {nodo.tipo === 'origen'  && <span><FaBox /> Oferta: {nodo.oferta} ton</span>}
                 {nodo.tipo === 'destino' && <span><FaShoppingCart /> Demanda: {nodo.demanda} ton</span>}
@@ -565,30 +484,19 @@ export default function Mapa({
                     {calidad >= 0.7 ? <FaCheckCircle /> : <FaExclamationTriangle />} Calidad: {Math.round(calidad*100)}%
                   </span>
                 </>}
-                <span className="tt-hint">Click para editar</span>
+                <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Click para editar</span>
               </Tooltip>
             </CircleMarker>
           )
         })}
       </MapContainer>
 
-      {/* ── Panel de edición (fuera del MapContainer) ─────────────────── */}
       {panel?.tipo === 'nodo' && (
-        <PanelNodo
-          nodo={panel.datos}
-          onGuardar={guardarNodo}
-          onCerrar={cerrarPanel}
-        />
+        <PanelNodo nodo={panel.datos} onGuardar={guardarNodo} onCerrar={cerrarPanel} />
       )}
       {panel?.tipo === 'arista' && (
-        <PanelArista
-          arista={panel.datos}
-          nodos={nodos}
-          onGuardar={guardarArista}
-          onCerrar={cerrarPanel}
-        />
+        <PanelArista arista={panel.datos} nodos={nodos} onGuardar={guardarArista} onCerrar={cerrarPanel} />
       )}
-
       <Leyenda />
     </div>
   )
