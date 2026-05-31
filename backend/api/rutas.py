@@ -24,8 +24,10 @@ from pydantic import BaseModel
 from algoritmos.genetico import AlgoritmoGenetico
 from algoritmos.gradiente import MetodoGradiente
 from algoritmos.validador import ValidadorRestricciones
-from database.db import crear_tablas, get_db
-from database.modelos_sql import EscenarioHistorialSQL, SolucionSQL
+from database.supabase_client import (
+    guardar_solucion, guardar_escenario,
+    obtener_rutas_cache, guardar_rutas_cache,
+)
 from grafos.dijkstra import DijkstraCalculator
 from grafos.flujo_maximo import FlujoMaximo
 from models.arista import Arista
@@ -118,23 +120,7 @@ def _resultado_requerido() -> dict:
 
 
 def _guardar_solucion_bd(resultado: dict) -> None:
-    try:
-        with get_db() as db:
-            sol = SolucionSQL(
-                tipo_escenario="base",
-                ganancia_total=resultado.get("ganancia", 0.0),
-                costo_total=resultado.get("gradiente", {}).get("costo_minimo", 0.0),
-                num_rutas_activas=resultado.get("ag", {}).get("num_rutas_activas", 0),
-                porcentaje_demanda_cumplida=resultado.get("metricas", {}).get(
-                    "porcentaje_demanda_cumplida", 0.0
-                ),
-            )
-            sol.set_flujos(resultado.get("gradiente", {}).get("flujos", {}))
-            sol.set_stocks(resultado.get("gradiente", {}).get("stocks", {}))
-            sol.set_metricas(resultado.get("metricas", {}))
-            db.add(sol)
-    except Exception as e:
-        logger.warning(f"No se pudo persistir la solución en BD: {e}")
+    guardar_solucion(resultado)
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -442,16 +428,23 @@ def sensibilidad_todos():
 
 
 def _persistir_escenario(tipo: str, params: dict, resultado: dict) -> None:
-    try:
-        with get_db() as db:
-            esc = EscenarioHistorialSQL(
-                tipo=tipo,
-                ganancia_base=resultado.get("ganancia_base", 0.0),
-                ganancia_escenario=resultado.get("ganancia_escenario", 0.0),
-                impacto_absoluto=resultado.get("impacto_absoluto", 0.0),
-                impacto_porcentual=resultado.get("impacto_porcentual", 0.0),
-            )
-            esc.set_parametros(params)
-            db.add(esc)
-    except Exception as e:
-        logger.warning(f"No se pudo persistir escenario en BD: {e}")
+    guardar_escenario(tipo, params, resultado)
+
+
+# ── Caché de rutas OSRM ───────────────────────────────────────────────────────
+
+class RutasCacheDTO(BaseModel):
+    rutas: Dict[str, list]
+
+
+@router.get("/api/rutas_cache")
+def get_rutas_cache():
+    """Devuelve las rutas OSRM cacheadas en Supabase."""
+    return obtener_rutas_cache()
+
+
+@router.post("/api/rutas_cache")
+def post_rutas_cache(datos: RutasCacheDTO):
+    """Guarda rutas OSRM calculadas en Supabase para no recalcularlas."""
+    guardar_rutas_cache(datos.rutas)
+    return {"estado": "éxito", "guardadas": len(datos.rutas)}

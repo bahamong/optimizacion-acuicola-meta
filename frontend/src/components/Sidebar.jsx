@@ -1,9 +1,5 @@
 import { useState, useEffect } from 'react'
-import {
-  FaDatabase, FaMapMarkedAlt, FaChartBar, FaFish,
-  FaAngleLeft, FaAngleRight, FaExclamation,
-} from 'react-icons/fa'
-import './Sidebar.css'
+import { FaDatabase, FaMapMarkedAlt, FaChartBar, FaFish, FaExclamation } from 'react-icons/fa'
 
 const ITEMS = [
   { id: 'datos',   icono: FaDatabase,     label: 'Datos de la Red' },
@@ -18,44 +14,66 @@ export default function Sidebar({ vistaActual, onCambiar, sincronizado }) {
     try { return localStorage.getItem(LS_KEY) === 'true' } catch { return false }
   })
 
-  // Persistir el estado expandido/colapsado entre recargas
   useEffect(() => {
     try { localStorage.setItem(LS_KEY, String(colapsada)) } catch { /* ignore */ }
   }, [colapsada])
 
   return (
-    <nav className={`sidebar ${colapsada ? 'colapsada' : ''}`}>
-      <div className="sidebar-logo">
-        <FaFish className="sidebar-logo-icon" />
-        {!colapsada && (
-          <div>
-            <p className="sidebar-logo-title">Acuícola</p>
-            <p className="sidebar-logo-sub">Real del Meta</p>
-          </div>
-        )}
+    <nav
+      className={`
+        flex flex-col flex-shrink-0 min-h-screen bg-indigo-950
+        shadow-[2px_0_10px_rgba(0,0,0,0.2)] transition-[width] duration-200
+        ${colapsada ? 'w-[60px]' : 'w-[210px]'}
+      `}
+    >
+      {/* Logo / Toggle — el ícono del pescado ES el botón que abre/cierra */}
+      <div
+        className={`
+          flex items-center border-b border-white/10 relative
+          ${colapsada ? 'justify-center px-0 py-5' : 'gap-3 px-4 py-5'}
+        `}
+      >
         <button
-          className="sidebar-toggle"
           onClick={() => setColapsada(c => !c)}
           title={colapsada ? 'Expandir menú' : 'Contraer menú'}
+          className="flex items-center gap-3 focus:outline-none group"
         >
-          {colapsada ? <FaAngleRight /> : <FaAngleLeft />}
+          <FaFish className="text-[1.8rem] text-indigo-300 flex-shrink-0 group-hover:text-indigo-100 transition-colors" />
+          {!colapsada && (
+            <div className="text-left">
+              <p className="text-[0.95rem] font-extrabold text-white leading-tight">Acuícola</p>
+              <p className="text-[0.68rem] text-white/50">Real del Meta</p>
+            </div>
+          )}
         </button>
       </div>
 
-      <ul className="sidebar-menu">
+      {/* Menú de navegación */}
+      <ul className="list-none p-0 py-3 flex-1">
         {ITEMS.map(item => {
           const Icono = item.icono
           return (
             <li key={item.id}>
               <button
-                className={`sidebar-item ${vistaActual === item.id ? 'activo' : ''}`}
+                className={`
+                  w-full flex items-center border-none text-[0.85rem] font-medium
+                  cursor-pointer text-left transition-all duration-150 relative
+                  ${colapsada ? 'justify-center px-0 py-3' : 'gap-3 px-4 py-3'}
+                  ${vistaActual === item.id
+                    ? 'bg-indigo-500/25 text-indigo-300 border-l-[3px] border-indigo-500 font-bold'
+                    : 'bg-transparent text-white/60 hover:bg-white/[0.08] hover:text-white'
+                  }
+                `}
                 onClick={() => onCambiar(item.id)}
                 title={colapsada ? item.label : undefined}
               >
-                <Icono className="sidebar-icono" />
-                {!colapsada && <span className="sidebar-label">{item.label}</span>}
+                <Icono className="text-[1.1rem] flex-shrink-0" />
+                {!colapsada && <span className="flex-1">{item.label}</span>}
                 {item.id === 'evaluar' && !sincronizado && (
-                  <span className="sidebar-alerta" title="Aplica los datos primero">
+                  <span
+                    className="bg-red-500 text-white rounded-full w-[18px] h-[18px] flex items-center justify-center text-[0.7rem] font-extrabold flex-shrink-0"
+                    title="Aplica los datos primero"
+                  >
                     <FaExclamation />
                   </span>
                 )}
@@ -65,8 +83,9 @@ export default function Sidebar({ vistaActual, onCambiar, sincronizado }) {
         })}
       </ul>
 
+      {/* Footer */}
       {!colapsada && (
-        <div className="sidebar-footer">
+        <div className="px-4 py-3 border-t border-white/10 text-[0.68rem] text-white/30 leading-relaxed">
           <p>Optimización Logística</p>
           <p>AG + Gradiente + Grafos</p>
         </div>

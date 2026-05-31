@@ -6,7 +6,7 @@ numpy==1.26.2
 scipy==1.11.4
 deap==1.4.1
 pulp==2.7.0
-sqlalchemy==2.0.23
+supabase>=2.0.0
 python-dotenv==1.0.0
 pytest==7.4.3
 httpx==0.25.2

@@ -4,7 +4,7 @@ const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 const api = axios.create({
   baseURL: BASE,
-  timeout: 120_000,  // 2 min — el AG puede tardar
+  timeout: 120_000,
 })
 
 // ── Red ──────────────────────────────────────────────────────────────────────
@@ -32,3 +32,7 @@ export const sensibilidadCalidad = (id_acopio, tasa_calidad_nueva) =>
   api.post('/api/sensibilidad/calidad', { id_acopio, tasa_calidad_nueva })
 
 export const sensibilidadTodos = () => api.post('/api/sensibilidad/todos')
+
+// ── Caché de rutas OSRM (Supabase) ───────────────────────────────────────────
+export const obtenerRutasCache = () => api.get('/api/rutas_cache')
+export const guardarRutasCache = (rutas) => api.post('/api/rutas_cache', { rutas })
