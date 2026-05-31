@@ -58,7 +58,8 @@ def obtener_rutas_cache() -> dict:
         res = sb.table("rutas_osrm_cache").select("ruta_key, path_json").execute()
         return {row["ruta_key"]: row["path_json"] for row in (res.data or [])}
     except Exception as e:
-        logger.warning(f"Error al obtener caché de rutas: {e}")
+        # La tabla puede no existir aún — devuelve vacío sin bloquear
+        logger.warning(f"Caché de rutas no disponible (¿tabla creada?): {e}")
         return {}
 
 
@@ -68,6 +69,14 @@ def guardar_rutas_cache(rutas: dict) -> None:
     try:
         sb = get_supabase()
         rows = [{"ruta_key": k, "path_json": v} for k, v in rutas.items()]
-        sb.table("rutas_osrm_cache").upsert(rows, on_conflict="ruta_key").execute()
+        # Insertar de a uno para evitar error de restricción única si no existe
+        for row in rows:
+            try:
+                sb.table("rutas_osrm_cache").upsert(row, on_conflict="ruta_key").execute()
+            except Exception:
+                try:
+                    sb.table("rutas_osrm_cache").insert(row).execute()
+                except Exception:
+                    pass
     except Exception as e:
         logger.warning(f"Error al guardar caché de rutas: {e}")
