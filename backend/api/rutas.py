@@ -18,6 +18,7 @@ Rutas disponibles:
 import json
 from typing import Dict, List, Optional
 
+import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -45,6 +46,29 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+
+def _to_native(obj):
+    """
+    Convierte recursivamente tipos de numpy (np.bool_, np.integer, np.floating,
+    np.ndarray) a tipos nativos de Python para que FastAPI pueda serializarlos
+    a JSON. Sin esto, un np.bool_ en la respuesta provoca un 500 — y como el
+    middleware CORS no añade cabeceras a las respuestas de error, el navegador
+    lo reporta como "Network Error".
+    """
+    if isinstance(obj, dict):
+        return {k: _to_native(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_native(v) for v in obj]
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return _to_native(obj.tolist())
+    return obj
 
 # ── Estado global de la aplicación ───────────────────────────────────────────
 # (Para esta app académica un singleton es suficiente)
@@ -280,6 +304,7 @@ def optimizar():
         ganancia_base = ganancia
 
         resultado_optimizacion = {
+            "ganancia": ganancia,
             "ag": resultado_ag,
             "gradiente": resultado_grad,
             "validacion": validacion,
@@ -311,8 +336,8 @@ def optimizar():
 def obtener_resultados():
     """Retorna el resultado completo de la última optimización."""
     resultado = _resultado_requerido()
-    # Serialización segura (eliminar objetos no-JSON-serializables)
-    return {
+    # Serialización segura: _to_native convierte tipos numpy (np.bool_, etc.)
+    return _to_native({
         "ag": {
             "mejor_fitness": resultado["ag"]["mejor_fitness"],
             "num_rutas_activas": resultado["ag"]["num_rutas_activas"],
@@ -326,14 +351,14 @@ def obtener_resultados():
         "ruta_representativa": resultado["ruta_representativa"],
         "capacidad_red": resultado["capacidad_red"],
         "aristas_criticas": resultado["aristas_criticas"],
-    }
+    })
 
 
 @router.get("/api/metricas")
 def obtener_metricas():
     """KPIs de la red actual (sin necesidad de optimización previa)."""
     grafo = _grafo_requerido()
-    return {
+    return _to_native({
         "nodos_totales": len(grafo.nodos),
         "aristas_totales": len(grafo.aristas),
         "num_origenes": len(grafo.obtener_nodos_por_tipo(TipoNodo.ORIGEN)),
@@ -343,14 +368,14 @@ def obtener_metricas():
         "demanda_total": grafo.demanda_total(),
         "conexo": grafo.validar_conectividad(),
         **(resultado_optimizacion["metricas"] if resultado_optimizacion else {}),
-    }
+    })
 
 
 @router.get("/api/grafo_json")
 def obtener_grafo_json():
     """Retorna nodos y aristas en formato JSON para visualización en el mapa."""
     grafo = _grafo_requerido()
-    return grafo.to_dict()
+    return _to_native(grafo.to_dict())
 
 
 @router.get("/api/ruta_optima")
@@ -362,7 +387,7 @@ def ruta_optima(origen: str, destino: str):
     if destino not in grafo.nodos:
         raise HTTPException(status_code=404, detail=f"Nodo destino '{destino}' no existe")
     calc = DijkstraCalculator(grafo)
-    return calc.ruta_con_detalle(origen, destino)
+    return _to_native(calc.ruta_con_detalle(origen, destino))
 
 
 @router.get("/api/flujo_maximo")
@@ -374,7 +399,7 @@ def flujo_maximo(fuente: str, sumidero: str):
     if sumidero not in grafo.nodos:
         raise HTTPException(status_code=404, detail=f"Nodo sumidero '{sumidero}' no existe")
     calc = FlujoMaximo(grafo)
-    return calc.reporte(fuente, sumidero)
+    return _to_native(calc.reporte(fuente, sumidero))
 
 
 @router.post("/api/sensibilidad/combustible")
@@ -387,7 +412,7 @@ def sensibilidad_combustible(params: SensibilidadCombustibleDTO):
     analizador = AnalizadorSensibilidad(grafo, ganancia_base)
     resultado = analizador.escenario_combustible(params.porcentaje_aumento)
     _persistir_escenario("combustible", params.dict(), resultado)
-    return resultado
+    return _to_native(resultado)
 
 
 @router.post("/api/sensibilidad/via_cerrada")
@@ -400,7 +425,7 @@ def sensibilidad_via_cerrada(params: SensibilidadViaDTO):
     analizador = AnalizadorSensibilidad(grafo, ganancia_base)
     resultado = analizador.escenario_via_cerrada(params.id_origen, params.id_destino)
     _persistir_escenario("via_cerrada", params.dict(), resultado)
-    return resultado
+    return _to_native(resultado)
 
 
 @router.post("/api/sensibilidad/calidad")
@@ -413,7 +438,7 @@ def sensibilidad_calidad(params: SensibilidadCalidadDTO):
     analizador = AnalizadorSensibilidad(grafo, ganancia_base)
     resultado = analizador.escenario_fallo_calidad(params.id_acopio, params.tasa_calidad_nueva)
     _persistir_escenario("calidad", params.dict(), resultado)
-    return resultado
+    return _to_native(resultado)
 
 
 @router.post("/api/sensibilidad/todos")
@@ -424,7 +449,7 @@ def sensibilidad_todos():
     """
     grafo = _grafo_requerido()
     analizador = AnalizadorSensibilidad(grafo, ganancia_base)
-    return analizador.ejecutar_todos()
+    return _to_native(analizador.ejecutar_todos())
 
 
 def _persistir_escenario(tipo: str, params: dict, resultado: dict) -> None:

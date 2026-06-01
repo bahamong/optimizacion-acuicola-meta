@@ -45,6 +45,12 @@ desktop.ini
 # ─────────────── Claude Code (configuración local de la máquina) ───────────────
 .claude/settings.local.json
 
+# ─────────────── Secretos / archivos locales (NO subir) ───────────────
+credenciales_supabase.txt
+prompt2.0.md
+prompt_claude_code.md
+.deps_instalados
+
 # ─────────────── Logs ───────────────
 *.log
 npm-debug.log*

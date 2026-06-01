@@ -12,8 +12,9 @@ Documentación interactiva disponible en:
   http://127.0.0.1:8000/docs
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from api.rutas import router
 from utils.logger import get_logger
@@ -31,14 +32,34 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# ── CORS (permite peticiones desde el frontend React en :3000) ────────────────
+# ── CORS ──────────────────────────────────────────────────────────────────────
+# allow_origin_regex cubre localhost/127.0.0.1 en CUALQUIER puerto (3000, 5173…)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8080"],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Manejador global de errores ───────────────────────────────────────────────
+# Garantiza que las excepciones no controladas devuelvan un JSON 500 *con*
+# cabeceras CORS (el navegador las necesita; sin ellas axios reporta
+# erróneamente "Network Error" en lugar del error real).
+@app.exception_handler(Exception)
+async def excepcion_global(request: Request, exc: Exception):
+    logger.error(f"Error no controlado en {request.url.path}: {exc}", exc_info=True)
+    origin = request.headers.get("origin", "*")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Error interno: {exc}"},
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+        },
+    )
+
 
 # ── Incluir todas las rutas de la API ─────────────────────────────────────────
 app.include_router(router)

@@ -16,29 +16,78 @@ const OSRM = 'https://router.project-osrm.org/route/v1/driving'
 // Nominatim viewbox usa: left,top,right,bottom  (lon_min, lat_max, lon_max, lat_min)
 const VIEWBOX = '-75.4,5.9,-71.5,2.8'
 
-export async function buscarLugares(texto) {
+// Distancia rápida (km) en línea recta — para ordenar por cercanía.
+function _distKm(lat1, lng1, lat2, lng2) {
+  const R = 6371
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+/**
+ * Busca lugares/direcciones en Colombia.
+ *  - Devuelve hasta 15 resultados (ej. "Unicentro" → varios centros comerciales).
+ *  - Si se pasa `cerca` {lat,lng} (ubicación del usuario), sesga la búsqueda
+ *    hacia esa zona y ordena los resultados por cercanía, SIN excluir los
+ *    lejanos (no usa `bounded=1`).
+ */
+export async function buscarLugares(texto, cerca = null) {
   if (!texto || texto.trim().length < 3) return []
   try {
+    // viewbox centrado en el usuario (si hay ubicación) para priorizar cercanos.
+    let viewbox = VIEWBOX
+    if (cerca && Number.isFinite(cerca.lat) && Number.isFinite(cerca.lng)) {
+      const d = 1.5 // ~150 km alrededor del usuario
+      viewbox = `${cerca.lng - d},${cerca.lat + d},${cerca.lng + d},${cerca.lat - d}`
+    }
     const url = `${NOMINATIM}/search?format=jsonv2&q=${encodeURIComponent(texto)}`
-      + `&countrycodes=co&limit=6&addressdetails=1`
-      + `&viewbox=${VIEWBOX}&bounded=1`
+      + `&countrycodes=co&limit=15&addressdetails=1`
+      + `&viewbox=${viewbox}`   // sesga sin `bounded` → no excluye otros resultados
     const res = await fetch(url, {
       headers: { 'Accept-Language': 'es' },
       signal: AbortSignal.timeout(7000),
     })
     if (!res.ok) return []
     const data = await res.json()
-    return data.map(item => ({
+    let resultados = data.map(item => ({
       etiqueta: item.display_name,
+      nombre: item.name || (item.display_name || '').split(',')[0],
       lat: parseFloat(item.lat),
       lng: parseFloat(item.lon),
       municipio: item.address?.city || item.address?.town
         || item.address?.village || item.address?.municipality || '',
       departamento: item.address?.state || '',
+      tipo: item.type || item.category || '',
     }))
+    // Ordenar por cercanía a la ubicación del usuario si está disponible.
+    if (cerca && Number.isFinite(cerca.lat) && Number.isFinite(cerca.lng)) {
+      resultados = resultados
+        .map(r => ({ ...r, _dist: _distKm(cerca.lat, cerca.lng, r.lat, r.lng) }))
+        .sort((a, b) => a._dist - b._dist)
+    }
+    return resultados
   } catch {
     return []
   }
+}
+
+/**
+ * Obtiene la ubicación actual del navegador (geolocalización).
+ * Devuelve {lat,lng} o null si el usuario no concede permiso / no disponible.
+ */
+export function obtenerUbicacionActual() {
+  return new Promise((resolve) => {
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
+      resolve(null); return
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+    )
+  })
 }
 
 export async function geocodificarInverso(lat, lng) {

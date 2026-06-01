@@ -5,10 +5,11 @@ import {
   FaIndustry, FaWarehouse, FaStore, FaRoute, FaBoxOpen,
   FaCheckCircle, FaExclamationTriangle, FaSyncAlt, FaUpload, FaDownload,
   FaPlus, FaPlay, FaPen, FaTrash, FaTimes, FaSearch, FaSpinner, FaFilter,
+  FaLocationArrow, FaMapMarkerAlt,
 } from 'react-icons/fa'
 import {
   buscarLugares, geocodificarInverso, distanciaRuta, distanciaHaversine,
-  MUNICIPIOS, DEPARTAMENTOS,
+  obtenerUbicacionActual, MUNICIPIOS, DEPARTAMENTOS,
 } from '../services/geo.js'
 
 const PIN = L.divIcon({
@@ -120,6 +121,8 @@ function FormNodo({ inicial, onGuardar, onCerrar, nodos }) {
   const [sugerencias,  setSugerencias]  = useState([])
   const [buscando,     setBuscando]     = useState(false)
   const [mostrarSugs,  setMostrarSugs]  = useState(false)
+  const [ubicacion,    setUbicacion]    = useState(null)    // {lat,lng} del usuario
+  const [geoEstado,    setGeoEstado]    = useState('idle')  // idle|cargando|ok|error
   const debounceRef = useRef()
   const buscarRef   = useRef()
 
@@ -128,13 +131,23 @@ function FormNodo({ inicial, onGuardar, onCerrar, nodos }) {
 
   const set = (k, v) => setD(p => ({ ...p, [k]: v }))
 
+  // Pedir la ubicación del usuario al abrir el formulario (sin bloquear la UI).
+  useEffect(() => {
+    let activo = true
+    obtenerUbicacionActual().then(loc => {
+      if (activo && loc) { setUbicacion(loc); setGeoEstado('ok') }
+    })
+    return () => { activo = false }
+  }, [])
+
   function onCambioDireccion(texto) {
     set('direccion', texto)
     clearTimeout(debounceRef.current)
     if (texto.trim().length < 3) { setSugerencias([]); setMostrarSugs(false); return }
     setBuscando(true)
     debounceRef.current = setTimeout(async () => {
-      const res = await buscarLugares(texto)
+      // Pasa la ubicación del usuario para priorizar resultados cercanos.
+      const res = await buscarLugares(texto, ubicacion)
       setSugerencias(res)
       setMostrarSugs(res.length > 0)
       setBuscando(false)
@@ -166,6 +179,19 @@ function FormNodo({ inicial, onGuardar, onCerrar, nodos }) {
       }))
     }
   }, [])
+
+  // Botón "Usar mi ubicación": centra el pin en la ubicación actual del usuario.
+  const usarMiUbicacion = useCallback(async () => {
+    setGeoEstado('cargando')
+    const loc = await obtenerUbicacionActual()
+    if (loc) {
+      setUbicacion(loc)
+      setGeoEstado('ok')
+      moverPin(loc.lat, loc.lng)
+    } else {
+      setGeoEstado('error')
+    }
+  }, [moverPin])
 
   useEffect(() => {
     setLatStr(Number(d.lat).toFixed(6))
@@ -210,37 +236,72 @@ function FormNodo({ inicial, onGuardar, onCerrar, nodos }) {
         </InputField>
       </div>
 
-      {/* Buscador de dirección — con dropdown de sugerencias correctamente posicionado */}
+      {/* Buscador de dirección — con dropdown de sugerencias y botón de ubicación */}
       <InputField label={<span className="flex items-center gap-1"><FaSearch /> Buscar dirección o lugar</span>}>
-        <div className="relative" ref={buscarRef}>
-          <input
-            className={INPUT_CLS + ' pr-8'}
-            value={d.direccion}
-            onChange={e => onCambioDireccion(e.target.value)}
-            onFocus={() => sugerencias.length > 0 && setMostrarSugs(true)}
-            onBlur={() => setTimeout(() => setMostrarSugs(false), 200)}
-            placeholder="Ej: Villavicencio, calle 40..."
-            autoComplete="off"
-          />
-          {buscando && (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
-              <FaSpinner className="animate-spin" />
-            </span>
-          )}
-          {/* Dropdown de sugerencias */}
-          {mostrarSugs && sugerencias.length > 0 && (
-            <ul className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[99999] max-h-48 overflow-y-auto">
-              {sugerencias.map((s, i) => (
-                <li key={i}
-                  className="px-3 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 cursor-pointer border-b border-slate-100 last:border-0 truncate"
-                  onMouseDown={() => elegirSugerencia(s)}
-                  title={s.etiqueta}>
-                  {s.etiqueta}
-                </li>
-              ))}
-            </ul>
-          )}
+        <div className="flex gap-2 items-start">
+          <div className="relative flex-1" ref={buscarRef}>
+            <input
+              className={INPUT_CLS + ' pr-8'}
+              value={d.direccion}
+              onChange={e => onCambioDireccion(e.target.value)}
+              onFocus={() => sugerencias.length > 0 && setMostrarSugs(true)}
+              onBlur={() => setTimeout(() => setMostrarSugs(false), 200)}
+              placeholder="Ej: Unicentro, Villavicencio, calle 40..."
+              autoComplete="off"
+            />
+            {buscando && (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+                <FaSpinner className="animate-spin" />
+              </span>
+            )}
+            {/* Dropdown de sugerencias */}
+            {mostrarSugs && sugerencias.length > 0 && (
+              <ul className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[99999] max-h-60 overflow-y-auto">
+                {sugerencias.map((s, i) => (
+                  <li key={i}
+                    className="px-3 py-2 text-sm text-slate-700 hover:bg-indigo-50 cursor-pointer border-b border-slate-100 last:border-0"
+                    onMouseDown={() => elegirSugerencia(s)}
+                    title={s.etiqueta}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-slate-800 truncate">{s.nombre || s.etiqueta.split(',')[0]}</span>
+                      {Number.isFinite(s._dist) && (
+                        <span className="text-[0.68rem] text-indigo-500 whitespace-nowrap flex items-center gap-0.5">
+                          <FaMapMarkerAlt /> {s._dist < 1 ? `${Math.round(s._dist * 1000)} m` : `${s._dist.toFixed(1)} km`}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[0.7rem] text-slate-400 truncate">{s.etiqueta}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {/* Botón usar mi ubicación */}
+          <button
+            type="button"
+            onClick={usarMiUbicacion}
+            title="Usar mi ubicación actual"
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors whitespace-nowrap
+              ${geoEstado === 'error'
+                ? 'border-red-300 text-red-600 bg-red-50'
+                : 'border-indigo-300 text-indigo-600 bg-indigo-50 hover:bg-indigo-100'}`}
+          >
+            {geoEstado === 'cargando'
+              ? <FaSpinner className="animate-spin" />
+              : <FaLocationArrow />}
+            <span className="hidden sm:inline">Mi ubicación</span>
+          </button>
         </div>
+        {geoEstado === 'ok' && ubicacion && (
+          <span className="text-[0.68rem] text-green-600 flex items-center gap-1 mt-1">
+            <FaCheckCircle /> Ubicación activa — los resultados se ordenan por cercanía a ti.
+          </span>
+        )}
+        {geoEstado === 'error' && (
+          <span className="text-[0.68rem] text-red-500 mt-1">
+            No se pudo obtener tu ubicación (permiso denegado o no disponible).
+          </span>
+        )}
       </InputField>
 
       {/* Mini mapa */}
