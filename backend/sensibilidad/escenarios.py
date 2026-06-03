@@ -24,8 +24,7 @@ Cada escenario retorna un dict con:
 
 from typing import Optional, Tuple
 
-from algoritmos.genetico import AlgoritmoGenetico
-from algoritmos.gradiente import MetodoGradiente
+from algoritmos.optimizador_grafo import OptimizadorGrafo
 from algoritmos.validador import ValidadorRestricciones
 from models.grafo import GrafoRed
 from models.nodo import TipoNodo
@@ -36,22 +35,14 @@ logger = get_logger(__name__)
 
 def _optimizar_grafo(grafo: GrafoRed) -> Tuple[float, dict]:
     """
-    Ejecuta AG + Gradiente sobre un grafo y retorna (ganancia, resultado_completo).
+    Ejecuta optimización por grafos (Flujo de Mínimo Costo) y retorna (ganancia, resultado).
     Función auxiliar usada por todos los escenarios.
     """
-    ag = AlgoritmoGenetico(grafo)
-    resultado_ag = ag.ejecutar()
-    rutas_activas = ag.rutas_activas_del_mejor()
+    opt = OptimizadorGrafo(grafo)
+    resultado_grafo = opt.ejecutar()
+    ganancia = resultado_grafo["ganancia"]
 
-    grad = MetodoGradiente(grafo, rutas_activas)
-    resultado_grad = grad.ejecutar()
-
-    ganancia = resultado_grad.get("ganancia", resultado_ag["mejor_fitness"])
-
-    return ganancia, {
-        "ag": resultado_ag,
-        "gradiente": resultado_grad,
-    }
+    return ganancia, {"grafo": resultado_grafo}
 
 
 class AnalizadorSensibilidad:
@@ -185,7 +176,7 @@ class AnalizadorSensibilidad:
             for a in grafo_mod.aristas.values()
         }
         stock_dict = {
-            a.id: resultado["gradiente"].get("stocks", {}).get(a.id, 0.0)
+            a.id: resultado["grafo"].get("stocks", {}).get(a.id, 0.0)
             for a in grafo_mod.obtener_nodos_por_tipo(TipoNodo.ACOPIO)
         }
         validacion = validador.validar_completo(flujos_dict, stock_dict)

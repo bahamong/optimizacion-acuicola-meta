@@ -25,8 +25,7 @@ import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from algoritmos.genetico import AlgoritmoGenetico
-from algoritmos.gradiente import MetodoGradiente
+from algoritmos.optimizador_grafo import OptimizadorGrafo
 from algoritmos.validador import ValidadorRestricciones
 from database.supabase_client import (
     guardar_solucion,
@@ -358,36 +357,30 @@ def cargar_datos(datos: CargaDatosDTO):
 @router.post("/api/optimizar")
 def optimizar():
     """
-    Ejecuta la optimización híbrida:
-      1. Algoritmo Genético
-      2. Método de Gradiente
-      3. Validación de restricciones
-      4. Cálculo de métricas finales
+    Ejecuta la optimización por grafos:
+      1. Flujo de Mínimo Costo (max_flow_min_cost)
+      2. Validación de restricciones
+      3. Cálculo de métricas finales
     """
     global resultado_optimizacion, ganancia_base
 
     grafo = _grafo_requerido()
 
     try:
-        logger.info("=== Iniciando optimización híbrida AG + Gradiente ===")
+        logger.info("=== Iniciando optimización por grafos ===")
 
-        ag = AlgoritmoGenetico(grafo)
-        resultado_ag = ag.ejecutar()
-        rutas_activas = ag.rutas_activas_del_mejor()
-
-        grad = MetodoGradiente(grafo, rutas_activas)
-        resultado_grad = grad.ejecutar()
+        opt = OptimizadorGrafo(grafo)
+        resultado_grafo = opt.ejecutar()
 
         flujos_dict = {
             (a.id_origen, a.id_destino): a.flujo_actual
             for a in grafo.aristas.values()
         }
 
-        stock_dict = resultado_grad.get("stocks", {})
-        stock_tuples = {k: v for k, v in stock_dict.items()}
+        stock_dict = resultado_grafo.get("stocks", {})
 
         validador = ValidadorRestricciones(grafo)
-        validacion = validador.validar_completo(flujos_dict, stock_tuples)
+        validacion = validador.validar_completo(flujos_dict, stock_dict)
 
         origenes = grafo.obtener_nodos_por_tipo(TipoNodo.ORIGEN)
         destinos = grafo.obtener_nodos_por_tipo(TipoNodo.DESTINO)
@@ -398,25 +391,22 @@ def optimizar():
         if origenes and destinos:
             try:
                 ruta_tmp = dijkstra.ruta_con_detalle(origenes[0].id, destinos[0].id)
-
                 if not _contiene_no_finito(ruta_tmp):
                     ruta_representativa = _to_native(ruta_tmp)
-
             except Exception as e:
                 logger.warning(f"No se pudo calcular ruta representativa: {e}")
 
         flujo_max_calc = FlujoMaximo(grafo)
         capacidad_red = flujo_max_calc.capacidad_red_completa()
 
-        metricas = calcular_metricas_resultado(grafo, resultado_grad)
+        metricas = calcular_metricas_resultado(grafo, resultado_grafo)
 
-        ganancia = resultado_grad.get("ganancia", resultado_ag["mejor_fitness"])
+        ganancia = resultado_grafo["ganancia"]
         ganancia_base = ganancia
 
         resultado_optimizacion = {
             "ganancia": ganancia,
-            "ag": resultado_ag,
-            "gradiente": resultado_grad,
+            "grafo": resultado_grafo,
             "validacion": validacion,
             "metricas": metricas,
             "ruta_representativa": ruta_representativa,
@@ -433,11 +423,11 @@ def optimizar():
         return _to_native({
             "estado": "éxito",
             "ganancia": round(ganancia, 2) if _es_finito(ganancia) else 0.0,
-            "costo_total": resultado_grad.get("costo_minimo", 0.0),
-            "rutas_activas": resultado_ag["num_rutas_activas"],
+            "costo_total": resultado_grafo.get("costo_minimo", 0.0),
+            "rutas_activas": resultado_grafo["num_rutas_activas"],
             "demanda_cumplida_pct": metricas["porcentaje_demanda_cumplida"],
             "restricciones_validas": validacion["valido"],
-            "mensaje": "Optimización híbrida AG + Gradiente completada.",
+            "mensaje": "Optimización por grafos completada.",
         })
 
     except Exception as e:
@@ -451,14 +441,7 @@ def obtener_resultados():
     resultado = _resultado_requerido()
 
     return _to_native({
-        "ag": {
-            "mejor_fitness": resultado["ag"]["mejor_fitness"],
-            "num_rutas_activas": resultado["ag"]["num_rutas_activas"],
-            "num_rutas_total": resultado["ag"]["num_rutas_total"],
-            "rutas_activas": resultado["ag"]["rutas_activas"],
-            "historial_fitness": resultado["ag"]["historial_fitness"],
-        },
-        "gradiente": resultado["gradiente"],
+        "grafo": resultado["grafo"],
         "validacion": resultado["validacion"],
         "metricas": resultado["metricas"],
         "ruta_representativa": resultado["ruta_representativa"],
