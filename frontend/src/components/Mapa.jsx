@@ -274,6 +274,8 @@ function PanelArista({ arista, nodos, onGuardar, onCerrar }) {
 }
 
 function Leyenda() {
+  const [abierta, setAbierta] = useState(false)
+
   const rutas = [
     { color: '#60a5fa', dash: false, label: 'Disponible (sin flujo)' },
     { color: '#22c55e', dash: false, label: 'Con flujo — normal' },
@@ -283,25 +285,74 @@ function Leyenda() {
     { color: COLOR_RIESGO, dash: true, label: 'En riesgo — calidad' },
     { color: '#7c3aed', dash: true,  label: 'Ruta óptima — Dijkstra' },
   ]
+
   return (
-    <div className="absolute bottom-3 left-3 z-[1000] bg-slate-900/95 border border-slate-700 rounded-xl p-3 text-xs text-white min-w-[180px]">
-      <p className="font-bold text-slate-300 mb-1.5">Nodos</p>
-      {[['origen','#ef4444','Estación origen'],['acopio','#f59e0b','Centro de acopio'],['destino','#22c55e','Supermercado']].map(([,c,lbl]) => (
-        <div key={lbl} className="flex items-center gap-2 mb-1">
-          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: c }} />
-          {lbl}
+    <div className="absolute bottom-3 left-3 z-[1000]">
+      {!abierta ? (
+        <button
+          type="button"
+          onClick={() => setAbierta(true)}
+          className="bg-slate-900/95 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white shadow-lg hover:bg-slate-800 transition-colors"
+          title="Mostrar leyenda"
+        >
+          ☰ Leyenda
+        </button>
+      ) : (
+        <div className="bg-slate-900/95 border border-slate-700 rounded-xl p-3 text-xs text-white min-w-[210px] shadow-lg">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-bold text-slate-200">Leyenda</span>
+
+            <button
+              type="button"
+              onClick={() => setAbierta(false)}
+              className="w-6 h-6 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/20 text-white"
+              title="Minimizar leyenda"
+            >
+              −
+            </button>
+          </div>
+
+          <p className="font-bold text-slate-300 mb-1.5">Nodos</p>
+
+          {[
+            ['origen', '#ef4444', 'Estación origen'],
+            ['acopio', '#f59e0b', 'Centro de acopio'],
+            ['destino', '#22c55e', 'Supermercado'],
+          ].map(([, c, lbl]) => (
+            <div key={lbl} className="flex items-center gap-2 mb-1">
+              <span
+                className="w-3 h-3 rounded-full flex-shrink-0"
+                style={{ background: c }}
+              />
+              {lbl}
+            </div>
+          ))}
+
+          <p className="font-bold text-slate-300 mb-1.5 mt-2">Rutas</p>
+
+          {rutas.map((it, i) => (
+            <div key={i} className="flex items-center gap-2 mb-1">
+              {it.dash ? (
+                <span
+                  className="w-6 border-t-2 border-dashed flex-shrink-0"
+                  style={{ borderColor: it.color }}
+                />
+              ) : (
+                <span
+                  className="w-6 h-0.5 flex-shrink-0"
+                  style={{ background: it.color }}
+                />
+              )}
+
+              {it.label}
+            </div>
+          ))}
+
+          <p className="text-slate-500 mt-1.5">
+            Click en nodo o ruta para editar
+          </p>
         </div>
-      ))}
-      <p className="font-bold text-slate-300 mb-1.5 mt-2">Rutas</p>
-      {rutas.map((it, i) => (
-        <div key={i} className="flex items-center gap-2 mb-1">
-          {it.dash
-            ? <span className="w-6 border-t-2 border-dashed flex-shrink-0" style={{ borderColor: it.color }} />
-            : <span className="w-6 h-0.5 flex-shrink-0" style={{ background: it.color }} />}
-          {it.label}
-        </div>
-      ))}
-      <p className="text-slate-500 mt-1.5">Click en nodo o ruta para editar</p>
+      )}
     </div>
   )
 }
