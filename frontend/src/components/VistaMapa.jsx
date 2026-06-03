@@ -1,3 +1,4 @@
+// Archivo: frontend/src/components/VistaMapa.jsx
 import { FaCircle, FaRoute, FaBox, FaInfoCircle, FaMapMarkerAlt } from 'react-icons/fa'
 import Mapa from './Mapa.jsx'
 

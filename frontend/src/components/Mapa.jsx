@@ -1,3 +1,4 @@
+// Archivo: frontend/src/components/Mapa.jsx
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   MapContainer, TileLayer, CircleMarker,

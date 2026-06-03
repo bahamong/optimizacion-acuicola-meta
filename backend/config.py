@@ -1,3 +1,4 @@
+# Archivo: backend/config.py
 import os
 from dotenv import load_dotenv
 
@@ -7,9 +8,9 @@ DEBUG = os.getenv("DEBUG", "True") == "True"
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8000"))
 
-# Supabase
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://hbidzhfxgofyfpuvqkpp.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhiaWR6aGZ4Z29meWZwdXZxa3BwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDI0OTA1MywiZXhwIjoyMDk1ODI1MDUzfQ.YnNa2Qblxbm6w8sxGm9jc-TU1fp9_i2-0AimHHIST_s")
+# Supabase — requiere SUPABASE_URL y SUPABASE_KEY en el archivo .env
+SUPABASE_URL = os.environ["SUPABASE_URL"]
+SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
 # Algoritmo Genético
 AG_POBLACION = int(os.getenv("AG_POBLACION", "60"))

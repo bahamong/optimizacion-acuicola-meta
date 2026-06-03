@@ -1,1 +1,1 @@
-# database package
+# Archivo: backend/database/__init__.py

@@ -1,3 +1,4 @@
+# Archivo: backend/models/nodo.py
 from enum import Enum
 from dataclasses import dataclass, field
 

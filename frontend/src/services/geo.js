@@ -1,3 +1,4 @@
+// Archivo: frontend/src/services/geo.js
 /**
  * geo.js — Servicios de geocodificación (OpenStreetMap Nominatim) y
  * cálculo de distancia por carretera (OSRM). Sin librerías externas.

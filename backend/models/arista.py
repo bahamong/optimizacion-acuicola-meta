@@ -1,3 +1,4 @@
+# Archivo: backend/models/arista.py
 from dataclasses import dataclass
 
 

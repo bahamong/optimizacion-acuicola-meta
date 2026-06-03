@@ -1,3 +1,4 @@
+# Archivo: backend/sensibilidad/escenarios.py
 """
 Análisis de Sensibilidad — Escenarios What-If.
 

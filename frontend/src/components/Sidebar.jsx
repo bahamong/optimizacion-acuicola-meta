@@ -1,3 +1,4 @@
+// Archivo: frontend/src/components/Sidebar.jsx
 import { useState, useEffect } from 'react'
 import { FaDatabase, FaMapMarkedAlt, FaChartBar, FaFish, FaExclamation } from 'react-icons/fa'
 

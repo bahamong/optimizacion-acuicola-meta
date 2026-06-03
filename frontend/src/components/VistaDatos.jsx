@@ -1,3 +1,4 @@
+// Archivo: frontend/src/components/VistaDatos.jsx
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'

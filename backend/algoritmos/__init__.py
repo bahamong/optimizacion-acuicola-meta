@@ -1,1 +1,1 @@
-# algoritmos package
+# Archivo: backend/algoritmos/__init__.py

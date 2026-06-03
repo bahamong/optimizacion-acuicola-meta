@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Archivo: run.py
 """
 run.py — Lanzador del Sistema de Optimización Acuícola Real del Meta
 

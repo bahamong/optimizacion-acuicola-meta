@@ -1,3 +1,4 @@
+# Archivo: backend/database/supabase_client.py
 """
 Cliente Supabase centralizado para el proyecto Acuícola Real del Meta.
 Reemplaza la capa SQLite/SQLAlchemy por operaciones en Supabase.

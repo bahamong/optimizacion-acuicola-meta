@@ -1,3 +1,4 @@
+# Archivo: backend/grafos/flujo_maximo.py
 from typing import Dict, List, Optional, Tuple
 
 import networkx as nx

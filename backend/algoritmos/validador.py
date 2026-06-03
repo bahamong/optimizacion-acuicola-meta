@@ -1,3 +1,4 @@
+# Archivo: backend/algoritmos/validador.py
 from typing import Dict, List, Tuple
 
 from models.grafo import GrafoRed

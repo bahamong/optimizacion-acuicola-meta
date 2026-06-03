@@ -1,3 +1,4 @@
+# Archivo: backend/algoritmos/genetico.py
 """
 Algoritmo Genético para optimización de rutas activas en la red logística.
 

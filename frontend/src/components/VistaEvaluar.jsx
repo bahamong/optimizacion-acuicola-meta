@@ -1,3 +1,4 @@
+// Archivo: frontend/src/components/VistaEvaluar.jsx
 import { useState } from 'react'
 import {
   Chart as ChartJS, CategoryScale, LinearScale,

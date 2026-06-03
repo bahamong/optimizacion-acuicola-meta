@@ -1,3 +1,4 @@
+# Archivo: backend/api/rutas.py
 """
 Endpoints REST de la API de Optimización — Acuícola Real del Meta.
 

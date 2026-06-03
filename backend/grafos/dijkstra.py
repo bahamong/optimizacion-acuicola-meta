@@ -1,3 +1,4 @@
+# Archivo: backend/grafos/dijkstra.py
 from typing import Dict, List, Optional, Tuple
 
 import networkx as nx

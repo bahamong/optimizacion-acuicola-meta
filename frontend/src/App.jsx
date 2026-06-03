@@ -1,3 +1,4 @@
+// Archivo: frontend/src/App.jsx
 import { useState, useEffect, useCallback } from 'react'
 import { FaExclamationTriangle, FaCheckCircle, FaTimes } from 'react-icons/fa'
 import Sidebar from './components/Sidebar.jsx'

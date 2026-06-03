@@ -1,3 +1,4 @@
+# Archivo: backend/main.py
 """
 Punto de entrada del servidor FastAPI — Acuícola Real del Meta.
 

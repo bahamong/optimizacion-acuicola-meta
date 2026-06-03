@@ -1,3 +1,4 @@
+# Archivo: backend/models/grafo.py
 from __future__ import annotations
 import copy
 from typing import Dict, List, Optional, Tuple

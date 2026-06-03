@@ -1,3 +1,4 @@
+# Archivo: backend/algoritmos/gradiente.py
 """
 Método de Gradiente (SciPy SLSQP) para optimización de flujos continuos.
 

@@ -1,1 +1,1 @@
-# api package
+# Archivo: backend/api/__init__.py
