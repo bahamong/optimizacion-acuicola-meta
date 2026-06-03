@@ -1,0 +1,13 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+networkx==3.2.1
+numpy==1.26.2
+scipy==1.11.4
+deap==1.4.1
+pulp==2.7.0
+supabase==2.8.1
+python-dotenv==1.0.0
+# httpx 0.27.x es requerido por supabase 2.8.x (usa el kwarg `proxy`).
+# httpx 0.25 falla con: Client.__init__() got an unexpected keyword argument 'proxy'
+httpx==0.27.2
