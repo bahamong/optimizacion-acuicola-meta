@@ -3,9 +3,15 @@
 Endpoints REST de la API de Optimización — Acuícola Real del Meta.
 
 Rutas disponibles:
-  POST /api/cargar_datos              → carga nodos y aristas en la red
-  POST /api/cargar_red_defecto        → carga la red predeterminada desde Supabase
-  POST /api/optimizar                 → ejecuta AG + Gradiente
+  GET    /api/nodos                   → lista los nodos desde Supabase
+  POST   /api/nodos                   → crea un nodo en Supabase
+  PUT    /api/nodos/{id}              → actualiza un nodo en Supabase
+  DELETE /api/nodos/{id}             → elimina un nodo (y sus aristas) de Supabase
+  GET    /api/aristas                 → lista las aristas desde Supabase
+  POST   /api/aristas                 → crea una arista en Supabase
+  PUT    /api/aristas/{id}            → actualiza una arista en Supabase
+  DELETE /api/aristas/{id}           → elimina una arista de Supabase
+  POST /api/optimizar                 → ejecuta AG + Gradiente (carga la red desde Supabase)
   GET  /api/resultados                → retorna la última solución
   GET  /api/metricas                  → KPIs de la solución actual
   GET  /api/grafo_json                → datos del grafo para visualizar en mapa
@@ -19,7 +25,7 @@ Rutas disponibles:
 """
 
 import math
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 import numpy as np
 from fastapi import APIRouter, HTTPException
@@ -32,17 +38,23 @@ from database.supabase_client import (
     guardar_escenario,
     obtener_rutas_cache,
     guardar_rutas_cache,
+    listar_nodos,
+    crear_nodo,
+    actualizar_nodo,
+    eliminar_nodo,
+    listar_aristas,
+    crear_arista,
+    actualizar_arista,
+    eliminar_arista,
 )
 from grafos.dijkstra import DijkstraCalculator
 from grafos.flujo_maximo import FlujoMaximo
-from models.arista import Arista
 from models.grafo import GrafoRed
-from models.nodo import Nodo, TipoNodo
+from models.nodo import TipoNodo
 from sensibilidad.escenarios import AnalizadorSensibilidad
 from utils.helpers import (
     calcular_metricas_resultado,
     construir_red_acuicola,
-    distancia_vial,
     merma_desde_calidad,
 )
 from utils.logger import get_logger
@@ -132,23 +144,26 @@ def _obtener_ruta_desde_resultado(resultado: dict) -> list:
 
 
 # ── Estado global de la aplicación ────────────────────────────────────────────
+# La red ya no se mantiene en memoria: se reconstruye desde Supabase en cada
+# operación que la necesita. Solo conservamos el último resultado de la
+# optimización (para /api/resultados y el análisis de sensibilidad).
 
-grafo_actual: Optional[GrafoRed] = None
 resultado_optimizacion: Optional[dict] = None
 ganancia_base: float = 0.0
 
 
 # ── Modelos Pydantic ──────────────────────────────────────────────────────────
 
-class NodoDTO(BaseModel):
-    id: str
+class NodoInputDTO(BaseModel):
+    """Nodo en el formato que envía el frontend (lat/lng)."""
+    id: Optional[str] = None
     tipo: str
     nombre: str
     municipio: str = ""
     departamento: str = ""
-    latitud: float
-    longitud: float
-    capacidad: float
+    lat: float = 0.0
+    lng: float = 0.0
+    capacidad: float = 0.0
     oferta: float = 0.0
     demanda: float = 0.0
     tasa_merma: float = 0.0
@@ -156,19 +171,15 @@ class NodoDTO(BaseModel):
     costo_operacion: float = 0.0
 
 
-class AristaDTO(BaseModel):
-    id_origen: str
-    id_destino: str
-    costo_transporte: float
-    capacidad: float
-    distancia: float
+class AristaInputDTO(BaseModel):
+    """Arista en el formato que envía el frontend (origen/destino/costo)."""
+    origen: str
+    destino: str
+    costo: float = 0.0
+    capacidad: float = 0.0
+    distancia: float = 0.0
     estado: str = "activa"
     umbral_calidad: float = 0.0
-
-
-class CargaDatosDTO(BaseModel):
-    nodos: List[NodoDTO]
-    aristas: List[AristaDTO]
 
 
 class SensibilidadCombustibleDTO(BaseModel):
@@ -191,13 +202,84 @@ class RutasCacheDTO(BaseModel):
 
 # ── Helpers internos ──────────────────────────────────────────────────────────
 
-def _grafo_requerido() -> GrafoRed:
-    if grafo_actual is None:
+def _cargar_grafo() -> GrafoRed:
+    """Reconstruye el grafo desde Supabase en cada petición (datos en vivo)."""
+    grafo = construir_red_acuicola()
+    if grafo is None or len(grafo.nodos) == 0:
         raise HTTPException(
             status_code=400,
-            detail="No hay datos cargados. Llama primero a POST /api/cargar_datos o /api/cargar_red_defecto.",
+            detail="No hay datos en la base de datos. Crea nodos y aristas primero.",
         )
-    return grafo_actual
+    return grafo
+
+
+def _nodo_a_fila(d: NodoInputDTO) -> dict:
+    """Convierte el DTO del frontend a una fila de la tabla `nodos`."""
+    tipo = d.tipo.lower()
+    merma = merma_desde_calidad(d.tasa_calidad) if tipo == "acopio" else d.tasa_merma
+    fila = {
+        "tipo": tipo,
+        "nombre": d.nombre,
+        "municipio": d.municipio,
+        "departamento": d.departamento,
+        "latitud": d.lat,
+        "longitud": d.lng,
+        "capacidad": d.capacidad,
+        "oferta": d.oferta,
+        "demanda": d.demanda,
+        "tasa_merma": merma,
+        "tasa_calidad": d.tasa_calidad,
+        "costo_operacion": d.costo_operacion,
+    }
+    if d.id:
+        fila["id"] = d.id
+    return fila
+
+
+def _fila_a_nodo(row: dict) -> dict:
+    """Convierte una fila de la tabla `nodos` al formato del frontend."""
+    return {
+        "id": row.get("id"),
+        "tipo": row.get("tipo"),
+        "nombre": row.get("nombre"),
+        "municipio": row.get("municipio", ""),
+        "departamento": row.get("departamento", ""),
+        "lat": row.get("latitud", 0.0),
+        "lng": row.get("longitud", 0.0),
+        "capacidad": row.get("capacidad", 0.0),
+        "oferta": row.get("oferta", 0.0),
+        "demanda": row.get("demanda", 0.0),
+        "tasa_merma": row.get("tasa_merma", 0.0),
+        "tasa_calidad": row.get("tasa_calidad", 1.0),
+        "costo_operacion": row.get("costo_operacion", 0.0),
+    }
+
+
+def _arista_a_fila(d: AristaInputDTO) -> dict:
+    """Convierte el DTO del frontend a una fila de la tabla `aristas`."""
+    return {
+        "id_origen": d.origen,
+        "id_destino": d.destino,
+        "costo_transporte": d.costo,
+        "capacidad": d.capacidad,
+        "distancia": d.distancia,
+        "estado": d.estado,
+        "umbral_calidad": d.umbral_calidad,
+    }
+
+
+def _fila_a_arista(row: dict) -> dict:
+    """Convierte una fila de la tabla `aristas` al formato del frontend."""
+    return {
+        "id": row.get("id"),
+        "origen": row.get("id_origen"),
+        "destino": row.get("id_destino"),
+        "costo": row.get("costo_transporte", 0.0),
+        "capacidad": row.get("capacidad", 0.0),
+        "distancia": row.get("distancia", 0.0),
+        "estado": row.get("estado", "activa"),
+        "umbral_calidad": row.get("umbral_calidad", 0.0),
+    }
 
 
 def _resultado_requerido() -> dict:
@@ -217,6 +299,13 @@ def _persistir_escenario(tipo: str, params: dict, resultado: dict) -> None:
     guardar_escenario(tipo, params, resultado)
 
 
+def _invalidar_optimizacion() -> None:
+    """Tras modificar la red, el último resultado de optimización queda obsoleto."""
+    global resultado_optimizacion, ganancia_base
+    resultado_optimizacion = None
+    ganancia_base = 0.0
+
+
 # ── Endpoints base ────────────────────────────────────────────────────────────
 
 @router.get("/health")
@@ -228,127 +317,119 @@ def health_check():
     }
 
 
-@router.post("/api/cargar_red_defecto")
-def cargar_red_defecto():
-    """Carga la red predeterminada desde Supabase."""
-    global grafo_actual, resultado_optimizacion, ganancia_base
+# ── CRUD de nodos ─────────────────────────────────────────────────────────────
 
+@router.get("/api/nodos")
+def get_nodos():
+    """Lista todos los nodos desde Supabase."""
     try:
-        grafo_actual = construir_red_acuicola()
-        resultado_optimizacion = None
-        ganancia_base = 0.0
-
-        return _to_native({
-            "estado": "éxito",
-            "nodos_cargados": len(grafo_actual.nodos),
-            "aristas_cargadas": len(grafo_actual.aristas),
-            "oferta_total": grafo_actual.oferta_total(),
-            "demanda_total": grafo_actual.demanda_total(),
-            "mensaje": "Red 'Acuícola Real del Meta' cargada correctamente.",
-        })
-
+        return _to_native([_fila_a_nodo(r) for r in listar_nodos()])
     except Exception as e:
-        logger.error(f"Error cargando red defecto: {e}")
+        logger.error(f"Error al listar nodos: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/api/cargar_datos")
-def cargar_datos(datos: CargaDatosDTO):
-    """Carga nodos y aristas desde JSON externo."""
-    global grafo_actual, resultado_optimizacion, ganancia_base
+@router.post("/api/nodos")
+def post_nodo(datos: NodoInputDTO):
+    """Crea un nodo en Supabase."""
+    try:
+        TipoNodo(datos.tipo.lower())
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tipo de nodo inválido: '{datos.tipo}'. Usa 'origen', 'acopio' o 'destino'.",
+        )
 
     try:
-        grafo_actual = GrafoRed()
+        creado = crear_nodo(_nodo_a_fila(datos))
+        _invalidar_optimizacion()
+        return _to_native(_fila_a_nodo(creado))
+    except Exception as e:
+        logger.error(f"Error al crear nodo: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
 
-        for nd in datos.nodos:
-            try:
-                tipo = TipoNodo(nd.tipo.lower())
-            except ValueError:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Tipo de nodo inválido: '{nd.tipo}'. Usa 'origen', 'acopio' o 'destino'.",
-                )
 
-            merma = (
-                merma_desde_calidad(nd.tasa_calidad)
-                if tipo == TipoNodo.ACOPIO
-                else nd.tasa_merma
-            )
-
-            nodo = Nodo(
-                id=nd.id,
-                tipo=tipo,
-                nombre=nd.nombre,
-                municipio=nd.municipio,
-                departamento=nd.departamento,
-                latitud=nd.latitud,
-                longitud=nd.longitud,
-                capacidad=nd.capacidad,
-                oferta=nd.oferta,
-                demanda=nd.demanda,
-                tasa_merma=merma,
-                tasa_calidad=nd.tasa_calidad,
-                costo_operacion=nd.costo_operacion,
-            )
-
-            grafo_actual.agregar_nodo(nodo)
-
-        vistas = set()
-
-        for ad in datos.aristas:
-            clave = (ad.id_origen, ad.id_destino)
-
-            if clave in vistas:
-                continue
-
-            vistas.add(clave)
-
-            dist = ad.distancia
-
-            if not dist or dist <= 0:
-                nodo_origen = grafo_actual.obtener_nodo(ad.id_origen)
-                nodo_destino = grafo_actual.obtener_nodo(ad.id_destino)
-
-                if nodo_origen and nodo_destino:
-                    dist = distancia_vial(
-                        nodo_origen.latitud,
-                        nodo_origen.longitud,
-                        nodo_destino.latitud,
-                        nodo_destino.longitud,
-                    )
-
-            arista = Arista(
-                id_origen=ad.id_origen,
-                id_destino=ad.id_destino,
-                costo_transporte=ad.costo_transporte,
-                capacidad=ad.capacidad,
-                distancia=dist,
-                estado=ad.estado,
-                umbral_calidad=ad.umbral_calidad,
-            )
-
-            grafo_actual.agregar_arista(arista)
-
-        resultado_optimizacion = None
-        ganancia_base = 0.0
-
-        if not grafo_actual.validar_conectividad():
-            logger.warning("El grafo cargado no es débilmente conexo.")
-
-        return _to_native({
-            "estado": "éxito",
-            "nodos_cargados": len(grafo_actual.nodos),
-            "aristas_cargadas": len(grafo_actual.aristas),
-            "oferta_total": grafo_actual.oferta_total(),
-            "demanda_total": grafo_actual.demanda_total(),
-            "conexo": grafo_actual.validar_conectividad(),
-        })
-
+@router.put("/api/nodos/{nodo_id}")
+def put_nodo(nodo_id: str, datos: NodoInputDTO):
+    """Actualiza un nodo existente en Supabase."""
+    fila = _nodo_a_fila(datos)
+    fila.pop("id", None)  # el id no se cambia en una actualización
+    try:
+        actualizado = actualizar_nodo(nodo_id, fila)
+        if not actualizado:
+            raise HTTPException(status_code=404, detail=f"Nodo '{nodo_id}' no existe.")
+        _invalidar_optimizacion()
+        return _to_native(_fila_a_nodo(actualizado))
     except HTTPException:
         raise
-
     except Exception as e:
-        logger.error(f"Error en cargar_datos: {e}")
+        logger.error(f"Error al actualizar nodo: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/api/nodos/{nodo_id}")
+def delete_nodo(nodo_id: str):
+    """Elimina un nodo y sus aristas asociadas de Supabase."""
+    try:
+        eliminar_nodo(nodo_id)
+        _invalidar_optimizacion()
+        return {"estado": "éxito", "eliminado": nodo_id}
+    except Exception as e:
+        logger.error(f"Error al eliminar nodo: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── CRUD de aristas ───────────────────────────────────────────────────────────
+
+@router.get("/api/aristas")
+def get_aristas():
+    """Lista todas las aristas desde Supabase."""
+    try:
+        return _to_native([_fila_a_arista(r) for r in listar_aristas()])
+    except Exception as e:
+        logger.error(f"Error al listar aristas: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/aristas")
+def post_arista(datos: AristaInputDTO):
+    """Crea una arista en Supabase."""
+    if datos.origen == datos.destino:
+        raise HTTPException(status_code=400, detail="Origen y destino deben ser distintos.")
+    try:
+        creada = crear_arista(_arista_a_fila(datos))
+        _invalidar_optimizacion()
+        return _to_native(_fila_a_arista(creada))
+    except Exception as e:
+        logger.error(f"Error al crear arista: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/api/aristas/{arista_id}")
+def put_arista(arista_id: int, datos: AristaInputDTO):
+    """Actualiza una arista existente en Supabase."""
+    try:
+        actualizada = actualizar_arista(arista_id, _arista_a_fila(datos))
+        if not actualizada:
+            raise HTTPException(status_code=404, detail=f"Arista '{arista_id}' no existe.")
+        _invalidar_optimizacion()
+        return _to_native(_fila_a_arista(actualizada))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error al actualizar arista: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/api/aristas/{arista_id}")
+def delete_arista(arista_id: int):
+    """Elimina una arista de Supabase."""
+    try:
+        eliminar_arista(arista_id)
+        _invalidar_optimizacion()
+        return {"estado": "éxito", "eliminado": arista_id}
+    except Exception as e:
+        logger.error(f"Error al eliminar arista: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -364,7 +445,7 @@ def optimizar():
     """
     global resultado_optimizacion, ganancia_base
 
-    grafo = _grafo_requerido()
+    grafo = _cargar_grafo()
 
     try:
         logger.info("=== Iniciando optimización por grafos ===")
@@ -455,7 +536,7 @@ def obtener_resultados():
 @router.get("/api/metricas")
 def obtener_metricas():
     """KPIs de la red actual."""
-    grafo = _grafo_requerido()
+    grafo = _cargar_grafo()
 
     return _to_native({
         "nodos_totales": len(grafo.nodos),
@@ -473,14 +554,14 @@ def obtener_metricas():
 @router.get("/api/grafo_json")
 def obtener_grafo_json():
     """Retorna nodos y aristas en formato JSON para visualización en el mapa."""
-    grafo = _grafo_requerido()
+    grafo = _cargar_grafo()
     return _to_native(grafo.to_dict())
 
 
 @router.get("/api/ruta_optima")
 def ruta_optima(origen: str, destino: str):
     """Calcula la ruta de mínimo costo entre dos nodos usando Dijkstra."""
-    grafo = _grafo_requerido()
+    grafo = _cargar_grafo()
 
     if origen not in grafo.nodos:
         raise HTTPException(
@@ -523,7 +604,7 @@ def ruta_optima(origen: str, destino: str):
 @router.get("/api/flujo_maximo")
 def flujo_maximo(fuente: str, sumidero: str):
     """Calcula el flujo máximo entre dos nodos usando Edmonds-Karp."""
-    grafo = _grafo_requerido()
+    grafo = _cargar_grafo()
 
     if fuente not in grafo.nodos:
         raise HTTPException(
@@ -550,7 +631,7 @@ def sensibilidad_combustible(params: SensibilidadCombustibleDTO):
     """
     Escenario 1: aumento del costo de combustible en rutas del Meta.
     """
-    grafo = _grafo_requerido()
+    grafo = _cargar_grafo()
     analizador = AnalizadorSensibilidad(grafo, ganancia_base)
 
     resultado = analizador.escenario_combustible(params.porcentaje_aumento)
@@ -565,7 +646,7 @@ def sensibilidad_via_cerrada(params: SensibilidadViaDTO):
     """
     Escenario 2: cierre de una vía principal.
     """
-    grafo = _grafo_requerido()
+    grafo = _cargar_grafo()
     analizador = AnalizadorSensibilidad(grafo, ganancia_base)
 
     resultado = analizador.escenario_via_cerrada(
@@ -583,7 +664,7 @@ def sensibilidad_calidad(params: SensibilidadCalidadDTO):
     """
     Escenario 3: pérdida de calidad en un centro de acopio.
     """
-    grafo = _grafo_requerido()
+    grafo = _cargar_grafo()
     analizador = AnalizadorSensibilidad(grafo, ganancia_base)
 
     resultado = analizador.escenario_fallo_calidad(
@@ -601,7 +682,7 @@ def sensibilidad_todos():
     """
     Ejecuta los 3 escenarios de análisis de sensibilidad automáticamente.
     """
-    grafo = _grafo_requerido()
+    grafo = _cargar_grafo()
     analizador = AnalizadorSensibilidad(grafo, ganancia_base)
 
     return _to_native(analizador.ejecutar_todos())

@@ -16,11 +16,7 @@ import {
   FaBoxOpen,
   FaCheckCircle,
   FaExclamationTriangle,
-  FaSyncAlt,
-  FaUpload,
-  FaDownload,
   FaPlus,
-  FaPlay,
   FaPen,
   FaTrash,
   FaTimes,
@@ -783,12 +779,12 @@ function FormArista({ inicial, onGuardar, onCerrar, nodos, aristas }) {
 export default function VistaDatos({
   nodos,
   aristas,
-  onNodosChange,
-  onAristasChange,
-  onAplicar,
-  onCargarDefecto,
-  sincronizado,
-  cargando,
+  onCrearNodo,
+  onActualizarNodo,
+  onEliminarNodo,
+  onCrearArista,
+  onActualizarArista,
+  onEliminarArista,
 }) {
   const [tab, setTab] = useState("nodos");
   const [modal, setModal] = useState(null);
@@ -796,7 +792,6 @@ export default function VistaDatos({
   const [filtroTipo, setFiltroTipo] = useState("todos");
   const [filtroDepto, setFiltroDepto] = useState("todos");
   const [filtroMunicipio, setFiltroMunicipio] = useState("todos");
-  const fileRef = useRef();
 
   const limpiarFiltros = () => {
     setFiltroTipo("todos");
@@ -805,71 +800,31 @@ export default function VistaDatos({
     setFiltro("");
   };
 
-  function agregarNodo(datos) {
-    onNodosChange([...nodos, { ...datos, id: siguienteId(nodos, datos.tipo) }]);
+  async function agregarNodo(datos) {
+    await onCrearNodo({ ...datos, id: siguienteId(nodos, datos.tipo) });
     setModal(null);
   }
-  function editarNodo(datos) {
-    onNodosChange(nodos.map((n) => (n.id === datos.id ? datos : n)));
+  async function editarNodo(datos) {
+    await onActualizarNodo(datos.id, datos);
     setModal(null);
   }
   function eliminarNodo(id) {
     if (!confirm(`¿Eliminar nodo "${id}"? También se eliminarán sus rutas.`))
       return;
-    onNodosChange(nodos.filter((n) => n.id !== id));
-    onAristasChange(
-      aristas.filter(
-        (a) =>
-          (a.origen || a.id_origen) !== id &&
-          (a.destino || a.id_destino) !== id,
-      ),
-    );
+    onEliminarNodo(id);
   }
 
-  function agregarArista(datos) {
-    onAristasChange([...aristas, datos]);
+  async function agregarArista(datos) {
+    await onCrearArista(datos);
     setModal(null);
   }
-  function editarArista(datos, idx) {
-    const nuevo = [...aristas];
-    nuevo[idx] = datos;
-    onAristasChange(nuevo);
+  async function editarArista(datos) {
+    await onActualizarArista(datos.id, datos);
     setModal(null);
   }
-  function eliminarArista(idx) {
+  function eliminarArista(arista) {
     if (!confirm("¿Eliminar esta ruta?")) return;
-    onAristasChange(aristas.filter((_, i) => i !== idx));
-  }
-
-  function importarJSON(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const data = JSON.parse(ev.target.result);
-        if (data.nodos) onNodosChange(data.nodos);
-        if (data.aristas) onAristasChange(data.aristas);
-        alert(
-          `Importado: ${data.nodos?.length || 0} nodos, ${data.aristas?.length || 0} aristas`,
-        );
-      } catch {
-        alert("Archivo JSON inválido.");
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = "";
-  }
-  function exportarJSON() {
-    const blob = new Blob([JSON.stringify({ nodos, aristas }, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "red_acuicola.json";
-    a.click();
-    URL.revokeObjectURL(url);
+    onEliminarArista(arista.id);
   }
 
   const txt = filtro.toLowerCase();
@@ -907,8 +862,6 @@ export default function VistaDatos({
 
   const CHIP =
     "flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-600 font-medium shadow-sm";
-  const BTN_TOOLBAR =
-    "flex items-center gap-1.5 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors";
   const SELECT_FILTER =
     "border border-slate-200 rounded-md px-2 py-1 text-xs text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white";
 
@@ -943,65 +896,9 @@ export default function VistaDatos({
         <span className={CHIP}>
           <FaBoxOpen className="text-green-400" /> Demanda: {demandaTotal} ton
         </span>
-        <span
-          className={`${CHIP} ${sincronizado ? "text-green-700 border-green-200" : "text-red-600 border-red-200"}`}
-        >
-          {sincronizado ? (
-            <>
-              <FaCheckCircle /> En sistema
-            </>
-          ) : (
-            <>
-              <FaExclamationTriangle /> Pendiente de aplicar
-            </>
-          )}
+        <span className={`${CHIP} text-green-700 border-green-200`}>
+          <FaCheckCircle /> Datos en vivo (Supabase)
         </span>
-      </div>
-
-      {/* Toolbar */}
-      <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            className={
-              BTN_TOOLBAR + " bg-indigo-50 border-indigo-200 text-indigo-600"
-            }
-            onClick={onCargarDefecto}
-            disabled={cargando}
-          >
-            <FaSyncAlt /> Red predeterminada
-          </button>
-          <button
-            className={BTN_TOOLBAR}
-            onClick={() => fileRef.current.click()}
-          >
-            <FaUpload /> Importar JSON
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".json"
-            className="hidden"
-            onChange={importarJSON}
-          />
-          <button className={BTN_TOOLBAR} onClick={exportarJSON}>
-            <FaDownload /> Exportar JSON
-          </button>
-        </div>
-        <button
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${cargando || sincronizado ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-green-600 hover:bg-green-700 text-white shadow-md"}`}
-          onClick={onAplicar}
-          disabled={cargando || sincronizado}
-        >
-          {cargando ? (
-            <>
-              <FaSpinner className="animate-spin" /> Aplicando...
-            </>
-          ) : (
-            <>
-              <FaPlay /> Aplicar al sistema
-            </>
-          )}
-        </button>
       </div>
 
       {/* Tabs + Filtros */}
@@ -1284,14 +1181,14 @@ export default function VistaDatos({
                         <button
                           className="p-1.5 rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors"
                           onClick={() =>
-                            setModal({ tipo: "arista-editar", datos: a, idx })
+                            setModal({ tipo: "arista-editar", datos: a })
                           }
                         >
                           <FaPen className="text-xs" />
                         </button>
                         <button
                           className="p-1.5 rounded bg-red-50 text-red-500 hover:bg-red-100 transition-colors"
-                          onClick={() => eliminarArista(idx)}
+                          onClick={() => eliminarArista(a)}
                         >
                           <FaTrash className="text-xs" />
                         </button>
@@ -1354,7 +1251,7 @@ export default function VistaDatos({
         <Modal titulo="Editar ruta" onClose={() => setModal(null)}>
           <FormArista
             inicial={modal.datos}
-            onGuardar={(dd) => editarArista(dd, modal.idx)}
+            onGuardar={editarArista}
             onCerrar={() => setModal(null)}
             nodos={nodos}
             aristas={aristas}

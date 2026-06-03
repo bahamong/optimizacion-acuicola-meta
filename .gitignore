@@ -15,11 +15,6 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
-# ─────────────── Variables de entorno ───────────────
-.env
-.env.*
-!.env.example
-
 # ─────────────── Base de datos (generada en runtime) ───────────────
 *.db
 *.sqlite
