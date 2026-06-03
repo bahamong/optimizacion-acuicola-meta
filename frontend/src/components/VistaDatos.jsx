@@ -35,6 +35,12 @@ import {
   MUNICIPIOS,
   DEPARTAMENTOS,
 } from "../services/geo.js";
+import {
+  ESTADOS_VIA,
+  ESTADO_POR_ID,
+  calcularCostoTotal,
+  etiquetaEstado,
+} from "../services/estados.js";
 
 const PIN = L.divIcon({
   className: "pin-divicon",
@@ -603,6 +609,9 @@ function FormArista({ inicial, onGuardar, onCerrar, nodos, aristas }) {
 
   const set = (k, v) => setD((p) => ({ ...p, [k]: v }));
 
+  // Costo total = costo base ajustado por el estado de la vía (no editable).
+  const costoTotal = calcularCostoTotal(d.costo, d.estado);
+
   useEffect(() => {
     if (!d.origen || !d.destino || d.origen === d.destino) return;
     const nO = nodos.find((n) => n.id === d.origen);
@@ -691,7 +700,7 @@ function FormArista({ inicial, onGuardar, onCerrar, nodos, aristas }) {
         </InputField>
       </div>
       <div className="grid grid-cols-3 gap-3">
-        <InputField label="Costo ($/ton)">
+        <InputField label="Costo base ($/ton)">
           <input
             type="number"
             min="0"
@@ -699,6 +708,22 @@ function FormArista({ inicial, onGuardar, onCerrar, nodos, aristas }) {
             className={INPUT_CLS}
             value={d.costo}
             onChange={(e) => set("costo", Number(e.target.value))}
+          />
+        </InputField>
+        <InputField
+          label="Costo total ($/ton)"
+          hint="Calculado del costo base y el estado de la vía. No editable."
+        >
+          <input
+            className={
+              INPUT_CLS + " bg-slate-50 text-slate-500 cursor-not-allowed"
+            }
+            value={
+              costoTotal === null
+                ? "Vía bloqueada"
+                : `$${costoTotal.toFixed(2)}`
+            }
+            readOnly
           />
         </InputField>
         <InputField label="Capacidad (ton)">
@@ -710,6 +735,8 @@ function FormArista({ inicial, onGuardar, onCerrar, nodos, aristas }) {
             onChange={(e) => set("capacidad", Number(e.target.value))}
           />
         </InputField>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
         <InputField label="Distancia — automática">
           <input
             className={
@@ -725,16 +752,17 @@ function FormArista({ inicial, onGuardar, onCerrar, nodos, aristas }) {
             readOnly
           />
         </InputField>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <InputField label="Estado">
+        <InputField label="Estado de la vía">
           <select
             className={SELECT_CLS}
             value={d.estado}
             onChange={(e) => set("estado", e.target.value)}
           >
-            <option value="activa">Activa</option>
-            <option value="bloqueada">Bloqueada</option>
+            {ESTADOS_VIA.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
           </select>
         </InputField>
         <InputField
@@ -1115,7 +1143,8 @@ export default function VistaDatos({
                 {[
                   "Origen",
                   "Destino",
-                  "Costo ($/ton)",
+                  "Costo base ($/ton)",
+                  "Costo total ($/ton)",
                   "Capacidad",
                   "Distancia",
                   "Estado",
@@ -1138,6 +1167,9 @@ export default function VistaDatos({
                 const nO = nodos.find((n) => n.id === o),
                   nD = nodos.find((n) => n.id === dest);
                 const riesgo = aristaEnRiesgo(a, nodos);
+                const costoBase = Number(a.costo || a.costo_transporte || 0);
+                const costoTotal = calcularCostoTotal(costoBase, a.estado);
+                const estadoInfo = ESTADO_POR_ID[a.estado] || ESTADO_POR_ID.activa;
                 return (
                   <tr
                     key={idx}
@@ -1150,7 +1182,12 @@ export default function VistaDatos({
                       {nD?.nombre || dest}
                     </td>
                     <td className="px-3 py-2 text-right font-mono text-xs">
-                      ${Number(a.costo || a.costo_transporte || 0).toFixed(2)}
+                      ${costoBase.toFixed(2)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-xs text-slate-500">
+                      {costoTotal === null
+                        ? "—"
+                        : `$${costoTotal.toFixed(2)}`}
                     </td>
                     <td className="px-3 py-2 text-right text-xs">
                       {a.capacidad}
@@ -1160,9 +1197,14 @@ export default function VistaDatos({
                     </td>
                     <td className="px-3 py-2">
                       <span
-                        className={`px-2 py-0.5 rounded text-xs font-semibold ${a.estado === "bloqueada" ? "bg-slate-100 text-slate-500" : "bg-green-50 text-green-700"}`}
+                        className="px-2 py-0.5 rounded text-xs font-semibold border"
+                        style={{
+                          color: estadoInfo.color,
+                          borderColor: estadoInfo.color,
+                          backgroundColor: estadoInfo.color + "1a",
+                        }}
                       >
-                        {a.estado || "activa"}
+                        {etiquetaEstado(a.estado)}
                       </span>
                       {riesgo && (
                         <span className="ml-1 px-1.5 py-0.5 rounded bg-red-100 text-red-600 text-xs">
@@ -1200,7 +1242,7 @@ export default function VistaDatos({
               {aristasFiltradas.length === 0 && (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className="text-center py-8 text-slate-400 text-sm"
                   >
                     No hay rutas que coincidan.

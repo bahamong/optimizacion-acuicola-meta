@@ -49,6 +49,7 @@ from database.supabase_client import (
 )
 from grafos.dijkstra import DijkstraCalculator
 from grafos.flujo_maximo import FlujoMaximo
+from models.arista import costo_total_segun_estado
 from models.grafo import GrafoRed
 from models.nodo import TipoNodo
 from sensibilidad.escenarios import AnalizadorSensibilidad
@@ -273,14 +274,17 @@ def _arista_a_fila(d: AristaInputDTO) -> dict:
 
 def _fila_a_arista(row: dict) -> dict:
     """Convierte una fila de la tabla `aristas` al formato del frontend."""
+    costo_base = row.get("costo_transporte", 0.0)
+    estado = row.get("estado", "activa")
     return {
         "id": row.get("id"),
         "origen": row.get("id_origen"),
         "destino": row.get("id_destino"),
-        "costo": row.get("costo_transporte", 0.0),
+        "costo": costo_base,  # costo base (editable)
+        "costo_total": costo_total_segun_estado(costo_base, estado),  # ajustado por estado (no editable)
         "capacidad": row.get("capacidad", 0.0),
         "distancia": row.get("distancia", 0.0),
-        "estado": row.get("estado", "activa"),
+        "estado": estado,
         "umbral_calidad": row.get("umbral_calidad", 0.0),
     }
 

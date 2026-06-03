@@ -88,12 +88,14 @@ class OptimizadorGrafo:
 
             if flujo > 1e-6:
                 flujos_optimos[f"{u}→{v}"] = round(flujo, 4)
-                costo_total += flujo * arista.costo_transporte
+                # Costo ajustado por el estado de la vía (costo base * multiplicador).
+                costo_total += flujo * arista.costo_total_unitario
                 rutas_activas.append({
                     "origen": u,
                     "destino": v,
                     "flujo": round(flujo, 4),
-                    "costo": round(arista.costo_transporte, 4),
+                    "costo": round(arista.costo_base, 4),
+                    "costo_total": round(arista.costo_total_unitario, 4),
                     "capacidad": arista.capacidad,
                     "utilizacion": round(arista.utilizacion, 4),
                 })

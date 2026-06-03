@@ -6,11 +6,12 @@ import {
 } from 'react-leaflet'
 import L from 'leaflet'
 import {
-  FaRoad, FaGasPump, FaHardHat, FaBan, FaTimes, FaDollarSign, FaBox,
+  FaBan, FaTimes, FaDollarSign, FaBox,
   FaExchangeAlt, FaRuler, FaShoppingCart, FaWarehouse, FaRecycle,
   FaCheckCircle, FaExclamationTriangle, FaTimesCircle,
 } from 'react-icons/fa'
 import { obtenerRutasCache, guardarRutasCache } from '../services/api.js'
+import { ESTADOS_VIA, ESTADO_POR_ID, calcularCostoTotal } from '../services/estados.js'
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 const COLOR_NODO = {
@@ -36,13 +37,6 @@ const COLOR_RUTA = {
 }
 
 const COLOR_RIESGO = COLOR_RUTA.riesgo
-
-const SITUACIONES = [
-  { id: 'normal',          label: 'Normal',                Icono: FaRoad,    mult: 1.00, color: '#22c55e', dash: null  },
-  { id: 'gasolina_alta',   label: 'Gasolina alta (+15%)',  Icono: FaGasPump, mult: 1.15, color: '#f59e0b', dash: null  },
-  { id: 'via_deteriorada', label: 'Vía deteriorada (+25%)',Icono: FaHardHat, mult: 1.25, color: '#ef4444', dash: null  },
-  { id: 'via_bloqueada',   label: 'Vía bloqueada',         Icono: FaBan,     mult: null, color: '#6b7280', dash: '6 4' },
-]
 
 function rutaEnRiesgo(arista, nodos) {
   const umbral = Number(arista.umbral_calidad) || 0
@@ -102,15 +96,15 @@ async function cargarTodasLasRutas(aristas, nodos, onProgreso) {
 }
 
 function estiloArista(arista) {
-  if (arista.estado === 'bloqueada') {
-  return { color: COLOR_RUTA.bloqueada, weight: 2.4, opacity: 0.85, dashArray: '7 5' }
-}
-  const sit  = arista._situacion || 'normal'
+  const estado = arista.estado || 'activa'
+  if (estado === 'bloqueada') {
+    return { color: COLOR_RUTA.bloqueada, weight: 2.4, opacity: 0.85, dashArray: '7 5' }
+  }
   const util = arista.utilizacion || 0
   const flujo = arista.flujo || 0
 
-  if (sit !== 'normal') {
-    const s = SITUACIONES.find(x => x.id === sit) || SITUACIONES[0]
+  if (estado !== 'activa') {
+    const s = ESTADO_POR_ID[estado] || ESTADOS_VIA[0]
     return {
       color:     s.color,
       weight:    flujo > 0 ? Math.max(2, Math.min(5, util * 6 + 1.5)) : 1.8,
@@ -231,17 +225,12 @@ function PanelNodo({ nodo, onGuardar, onCerrar }) {
 }
 
 function PanelArista({ arista, nodos, onGuardar, onCerrar }) {
-  const costoBase = useRef(arista._costoBase ?? arista.costo ?? arista.costo_transporte ?? 0)
-  const [sit,   setSit]   = useState(arista._situacion || 'normal')
-  const [costo, setCosto] = useState(Number((arista.costo || arista.costo_transporte || 0).toFixed(2)))
-  const [cap,   setCap]   = useState(Number(arista.capacidad || 0))
+  const [estado, setEstado] = useState(arista.estado || 'activa')
+  const [costo,  setCosto]  = useState(Number((arista.costo || arista.costo_transporte || 0).toFixed(2)))
+  const [cap,    setCap]    = useState(Number(arista.capacidad || 0))
 
-  const seleccionar = (s) => {
-    setSit(s.id)
-    if (s.id !== 'via_bloqueada' && s.mult !== null) {
-      setCosto(Number((costoBase.current * s.mult).toFixed(2)))
-    }
-  }
+  // Costo total = costo base ajustado por el estado de la vía (no editable).
+  const costoTotal = calcularCostoTotal(costo, estado)
 
   const orig = nodos.find(n => n.id === (arista.origen || arista.id_origen))
   const dest = nodos.find(n => n.id === (arista.destino || arista.id_destino))
@@ -257,38 +246,42 @@ function PanelArista({ arista, nodos, onGuardar, onCerrar }) {
       <div className="p-4 flex flex-col gap-3">
         <p className="text-xs text-slate-400 uppercase tracking-wide">Situación de la vía</p>
         <div className="grid grid-cols-2 gap-2">
-          {SITUACIONES.map(s => (
+          {ESTADOS_VIA.map(s => (
             <button key={s.id}
-              className={`flex items-center gap-2 px-2 py-2 rounded border text-xs transition-all ${sit === s.id ? 'border-current font-bold opacity-100' : 'border-slate-600 text-slate-400 hover:border-slate-400'}`}
-              style={sit === s.id ? { borderColor: s.color, color: s.color, background: s.color + '20' } : {}}
-              onClick={() => seleccionar(s)}
+              className={`flex items-center gap-2 px-2 py-2 rounded border text-xs transition-all ${estado === s.id ? 'border-current font-bold opacity-100' : 'border-slate-600 text-slate-400 hover:border-slate-400'}`}
+              style={estado === s.id ? { borderColor: s.color, color: s.color, background: s.color + '20' } : {}}
+              onClick={() => setEstado(s.id)}
             >
               <s.Icono /> {s.label}
             </button>
           ))}
         </div>
 
-        {sit !== 'via_bloqueada' && (
-          <>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-400">Costo de transporte ($/ton)</label>
-              <div className="flex items-center gap-2">
-                <input type="number" min="0" step="0.5"
-                  className="flex-1 bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
-                  value={costo} onChange={e => setCosto(Number(e.target.value))} />
-                <span className="text-xs text-slate-500">Base: ${costoBase.current.toFixed(2)}</span>
-              </div>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-400">Capacidad máxima (ton)</label>
-              <input type="number" min="1"
-                className="bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
-                value={cap} onChange={e => setCap(Number(e.target.value))} />
-            </div>
-          </>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-slate-400">Costo base ($/ton)</label>
+          <input type="number" min="0" step="0.5"
+            className="bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
+            value={costo} onChange={e => setCosto(Number(e.target.value))} />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-slate-400">Costo total ($/ton)</label>
+          <input readOnly
+            className="bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-slate-300 cursor-not-allowed"
+            value={costoTotal === null ? 'Vía bloqueada' : `$${costoTotal.toFixed(2)}`} />
+          <span className="text-[0.68rem] text-slate-500">Calculado del costo base y el estado. No editable.</span>
+        </div>
+
+        {estado !== 'bloqueada' && (
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-slate-400">Capacidad máxima (ton)</label>
+            <input type="number" min="1"
+              className="bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
+              value={cap} onChange={e => setCap(Number(e.target.value))} />
+          </div>
         )}
 
-        {sit === 'via_bloqueada' && (
+        {estado === 'bloqueada' && (
           <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded p-2 text-red-300 text-xs">
             <FaBan /> Esta ruta quedará bloqueada.
           </div>
@@ -298,7 +291,7 @@ function PanelArista({ arista, nodos, onGuardar, onCerrar }) {
       <div className="flex gap-2 px-4 py-3 border-t border-slate-700">
         <button className="flex-1 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-sm transition-colors" onClick={onCerrar}>Cancelar</button>
         <button className="flex-1 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-semibold transition-colors"
-          onClick={() => onGuardar({ _situacion: sit, _costoBase: costoBase.current, costo, capacidad: cap, estado: sit === 'via_bloqueada' ? 'bloqueada' : 'activa' })}>
+          onClick={() => onGuardar({ costo, capacidad: cap, estado })}>
           Aplicar
         </button>
       </div>
@@ -526,7 +519,11 @@ export default function Mapa({
               eventHandlers={{ click: (e) => { L.DomEvent.stopPropagation(e); setPanel({ tipo: 'arista', datos: a }) } }}>
               <Tooltip sticky direction="center">
                 <strong>{nO?.nombre || origenId} → {nD?.nombre || destinoId}</strong>
-                <span><FaDollarSign /> Costo: ${(a.costo || a.costo_transporte || 0).toFixed(2)}/ton</span>
+                <span><FaDollarSign /> Costo base: ${(a.costo || a.costo_transporte || 0).toFixed(2)}/ton</span>
+                <span><FaDollarSign /> Costo total: {(() => {
+                  const ct = a.costo_total != null ? Number(a.costo_total) : calcularCostoTotal(a.costo || a.costo_transporte || 0, a.estado)
+                  return ct == null ? '—' : `$${ct.toFixed(2)}/ton`
+                })()}</span>
                 <span><FaBox /> Cap: {a.capacidad} ton</span>
                 {(a.flujo || 0) > 0 && <span><FaExchangeAlt /> Flujo: {Number(a.flujo).toFixed(1)} ({((a.utilizacion||0)*100).toFixed(0)}%)</span>}
                 <span><FaRuler /> {a.distancia} km</span>

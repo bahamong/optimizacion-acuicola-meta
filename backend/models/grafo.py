@@ -48,7 +48,7 @@ class GrafoRed:
         self._nx.add_edge(
             arista.id_origen,
             arista.id_destino,
-            weight=arista.costo_transporte,
+            weight=arista.costo_total_unitario,  # costo ajustado por el estado de la vía
             capacidad=arista.capacidad,
             distancia=arista.distancia,
         )
@@ -127,7 +127,8 @@ class GrafoRed:
                 {
                     "origen": a.id_origen,
                     "destino": a.id_destino,
-                    "costo": a.costo_transporte,
+                    "costo": a.costo_transporte,        # costo base (editable)
+                    "costo_total": a.costo_total_unitario,  # ajustado por estado (no editable)
                     "capacidad": a.capacidad,
                     "distancia": a.distancia,
                     "flujo": a.flujo_actual,
