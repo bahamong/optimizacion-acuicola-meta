@@ -15,8 +15,8 @@ import { obtenerRutasCache, guardarRutasCache } from '../services/api.js'
 // ── Constantes ────────────────────────────────────────────────────────────────
 const COLOR_NODO = {
   origen:  '#b91c1c', // rojo más oscuro
-  acopio:  '#c2410c', // naranja fuerte
-  destino: '#15803d', // verde oscuro vivo
+  acopio:  '#deff21', // naranja fuerte
+  destino: '#0b5f2a', // verde oscuro vivo
 }
 
 const RADIO_NODO = {
