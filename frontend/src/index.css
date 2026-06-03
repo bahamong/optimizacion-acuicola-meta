@@ -45,3 +45,6 @@
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: #1e293b; }
 ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+.leaflet-tile-pane {
+  filter: grayscale(1) brightness(0.92) contrast(1.15);
+}

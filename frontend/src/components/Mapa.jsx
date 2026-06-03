@@ -13,9 +13,29 @@ import {
 import { obtenerRutasCache, guardarRutasCache } from '../services/api.js'
 
 // ── Constantes ────────────────────────────────────────────────────────────────
-const COLOR_NODO = { origen: '#ef4444', acopio: '#f59e0b', destino: '#22c55e' }
-const RADIO_NODO = { origen: 11, acopio: 9, destino: 7 }
-const COLOR_RIESGO = '#e11d48'
+const COLOR_NODO = {
+  origen:  '#b91c1c', // rojo más oscuro
+  acopio:  '#c2410c', // naranja fuerte
+  destino: '#15803d', // verde oscuro vivo
+}
+
+const RADIO_NODO = {
+  origen:  12,
+  acopio:  10,
+  destino: 8,
+}
+
+const COLOR_RUTA = {
+  disponible: '#1d4ed8', // azul fuerte
+  normal:     '#15803d', // verde oscuro
+  alta:       '#c2410c', // naranja fuerte
+  saturada:   '#b91c1c', // rojo oscuro
+  bloqueada:  '#374151', // gris oscuro
+  riesgo:     '#be123c', // vino / fucsia oscuro
+  dijkstra:   '#5b21b6', // morado oscuro
+}
+
+const COLOR_RIESGO = COLOR_RUTA.riesgo
 
 const SITUACIONES = [
   { id: 'normal',          label: 'Normal',                Icono: FaRoad,    mult: 1.00, color: '#22c55e', dash: null  },
@@ -83,8 +103,8 @@ async function cargarTodasLasRutas(aristas, nodos, onProgreso) {
 
 function estiloArista(arista) {
   if (arista.estado === 'bloqueada') {
-    return { color: '#6b7280', weight: 1.5, opacity: 0.6, dashArray: '7 5' }
-  }
+  return { color: COLOR_RUTA.bloqueada, weight: 2.4, opacity: 0.85, dashArray: '7 5' }
+}
   const sit  = arista._situacion || 'normal'
   const util = arista.utilizacion || 0
   const flujo = arista.flujo || 0
@@ -98,14 +118,27 @@ function estiloArista(arista) {
       dashArray: s.dash,
     }
   }
-  if (flujo <= 0) {
-    return { color: '#60a5fa', weight: 1.4, opacity: 0.55, dashArray: null }
-  }
-  let color
-  if      (util >= 0.85) color = '#ef4444'
-  else if (util >= 0.60) color = '#f59e0b'
-  else                   color = '#22c55e'
-  return { color, weight: Math.max(2.5, Math.min(6, util * 7 + 2)), opacity: 0.88, dashArray: null }
+    if (flujo <= 0) {
+      return {
+        color: COLOR_RUTA.disponible,
+        weight: 2.4,
+        opacity: 0.85,
+        dashArray: null,
+      }
+    }
+
+    let color
+
+    if      (util >= 0.85) color = COLOR_RUTA.saturada
+    else if (util >= 0.60) color = COLOR_RUTA.alta
+    else                   color = COLOR_RUTA.normal
+
+    return {
+      color,
+      weight: Math.max(3.5, Math.min(7, util * 8 + 3)),
+      opacity: 0.95,
+      dashArray: null,
+    }
 }
 
 function CerrarAlClickMapa({ onCerrar }) {
@@ -277,13 +310,13 @@ function Leyenda() {
   const [abierta, setAbierta] = useState(false)
 
   const rutas = [
-    { color: '#60a5fa', dash: false, label: 'Disponible (sin flujo)' },
-    { color: '#22c55e', dash: false, label: 'Con flujo — normal' },
-    { color: '#f59e0b', dash: false, label: 'Con flujo — alta demanda (>60%)' },
-    { color: '#ef4444', dash: false, label: 'Con flujo — saturada (>85%)' },
-    { color: '#6b7280', dash: true,  label: 'Bloqueada' },
-    { color: COLOR_RIESGO, dash: true, label: 'En riesgo — calidad' },
-    { color: '#7c3aed', dash: true,  label: 'Ruta óptima — Dijkstra' },
+    { color: COLOR_RUTA.disponible, dash: false, label: 'Disponible (sin flujo)' },
+    { color: COLOR_RUTA.normal,     dash: false, label: 'Con flujo — normal' },
+    { color: COLOR_RUTA.alta,       dash: false, label: 'Con flujo — alta demanda (>60%)' },
+    { color: COLOR_RUTA.saturada,   dash: false, label: 'Con flujo — saturada (>85%)' },
+    { color: COLOR_RUTA.bloqueada,  dash: true,  label: 'Bloqueada' },
+    { color: COLOR_RUTA.riesgo,     dash: true,  label: 'En riesgo — calidad' },
+    { color: COLOR_RUTA.dijkstra,   dash: true,  label: 'Ruta óptima — Dijkstra' },
   ]
 
   return (
@@ -315,9 +348,9 @@ function Leyenda() {
           <p className="font-bold text-slate-300 mb-1.5">Nodos</p>
 
           {[
-            ['origen', '#ef4444', 'Estación origen'],
-            ['acopio', '#f59e0b', 'Centro de acopio'],
-            ['destino', '#22c55e', 'Supermercado'],
+            ['origen', COLOR_NODO.origen, 'Estación origen'],
+            ['acopio', COLOR_NODO.acopio, 'Centro de acopio'],
+            ['destino', COLOR_NODO.destino, 'Supermercado'],
           ].map(([, c, lbl]) => (
             <div key={lbl} className="flex items-center gap-2 mb-1">
               <span
@@ -507,8 +540,9 @@ export default function Mapa({
 
         {caminoDijkstra.length > 1 && (
           <Polyline positions={caminoDijkstra}
-            pathOptions={{ color: '#7c3aed', weight: 5, dashArray: '10 5', opacity: 0.95, lineCap: 'round' }} />
+            pathOptions={{ color: COLOR_RUTA.dijkstra, weight: 6, dashArray: '10 5', opacity: 1, lineCap: 'round' }} />
         )}
+        
 
         {nodos.map(nodo => {
           const lat = nodo.lat ?? nodo.latitud
@@ -519,10 +553,10 @@ export default function Mapa({
             <CircleMarker key={nodo.id} center={[lat, lng]}
               radius={RADIO_NODO[nodo.tipo] || 7}
               pathOptions={{
-                fillColor:   COLOR_NODO[nodo.tipo] || '#64748b',
-                fillOpacity: 0.9,
-                color:       nodo.tipo === 'acopio' && calidad < 0.5 ? '#ef4444' : '#1e293b',
-                weight:      nodo.tipo === 'acopio' && calidad < 0.5 ? 3 : 1.5,
+                fillColor:   COLOR_NODO[nodo.tipo] || '#334155',
+                fillOpacity: 1,
+                color:       nodo.tipo === 'acopio' && calidad < 0.5 ? '#facc15' : '#ffffff',
+                weight:      nodo.tipo === 'acopio' && calidad < 0.5 ? 4 : 2.5,
               }}
               eventHandlers={{ click: (e) => { L.DomEvent.stopPropagation(e); setPanel({ tipo: 'nodo', datos: nodo }) } }}>
               <Tooltip direction="top" offset={[0, -10]}>
