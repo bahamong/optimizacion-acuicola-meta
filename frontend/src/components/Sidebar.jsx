@@ -103,7 +103,7 @@ export default function Sidebar({ vistaActual, onCambiar, sincronizado }) {
       {!colapsada && (
         <div className="px-4 py-3 border-t border-white/10 text-[0.68rem] text-white/30 leading-relaxed">
           <p>Optimización Logística</p>
-          <p>AG + Gradiente + Grafos</p>
+          <p>Optimización por Grafos</p>
         </div>
       )}
     </nav>

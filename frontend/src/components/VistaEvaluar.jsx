@@ -1,17 +1,10 @@
 // Archivo: frontend/src/components/VistaEvaluar.jsx
 import { useState } from 'react'
 import {
-  Chart as ChartJS, CategoryScale, LinearScale,
-  PointElement, LineElement, Title, Tooltip, Legend, Filler,
-} from 'chart.js'
-import { Line } from 'react-chartjs-2'
-import {
   FaMapMarkedAlt, FaWater, FaBolt, FaSearch, FaPlay, FaChartBar,
   FaCheckCircle, FaExclamationTriangle, FaTimesCircle,
 } from 'react-icons/fa'
 import * as api from '../services/api.js'
-
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
 function SelectorNodo({ label, valor, onChange, nodos, excluir = '', requerido = false }) {
   const origenes = nodos.filter(n => n.tipo === 'origen')
@@ -183,10 +176,9 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
     <div className="flex flex-col gap-5">
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 flex items-start justify-between gap-4">
         <div className="flex-1">
-          <h3 className="text-base font-bold text-slate-800 mb-2">Optimización Híbrida de la Red</h3>
+          <h3 className="text-base font-bold text-slate-800 mb-2">Optimización por Grafos</h3>
           <p className="text-sm text-slate-600 leading-relaxed">
-            <strong>Paso 1 — AG:</strong> cromosoma binario y<sub>ij</sub> ∈ {'{0,1}'} determina rutas activas. Población 60, 150 generaciones.<br />
-            <strong>Paso 2 — Gradiente (SLSQP):</strong> optimiza flujos x<sub>ij</sub> y stocks s<sub>j</sub> minimizando costos respetando restricciones.
+            <strong>Flujo de Mínimo Costo:</strong> asigna los flujos x<sub>ij</sub> que satisfacen la demanda al menor costo de transporte posible, respetando la oferta, la demanda y la capacidad de cada arista.
           </p>
           {!sincronizado && (
             <p className="mt-2 text-sm text-amber-600 flex items-center gap-1">
@@ -228,32 +220,6 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
             </div>
           )}
 
-          {resultados.historialAG?.length > 0 && (
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <h4 className="text-sm font-bold text-slate-700 mb-3">Convergencia del Algoritmo Genético</h4>
-              <Line
-                data={{
-                  labels: resultados.historialAG.map((_, i) => `Gen ${i+1}`),
-                  datasets: [{
-                    data: resultados.historialAG,
-                    borderColor: '#6366f1',
-                    backgroundColor: 'rgba(99,102,241,0.07)',
-                    fill: true, tension: 0.3, borderWidth: 2,
-                    pointRadius: resultados.historialAG.length > 50 ? 0 : 3,
-                  }],
-                }}
-                options={{
-                  responsive: true, animation: false,
-                  plugins: { legend:{display:false} },
-                  scales: {
-                    x: { grid:{display:false}, ticks:{maxTicksLimit:10,font:{size:11}} },
-                    y: { grid:{color:'#f1f5f9'}, ticks:{font:{size:11},callback:v=>`$${(v/1000).toFixed(0)}K`} },
-                  },
-                }}
-              />
-            </div>
-          )}
-
           <div className="grid md:grid-cols-2 gap-4">
             {resultados.flujos && (() => {
               const filas = Object.entries(resultados.flujos).filter(([,v])=>v>0.01).sort(([,a],[,b])=>b-a)
@@ -275,16 +241,16 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
               ) : null
             })()}
 
-            {resultados.rutas_ag?.length > 0 && (
+            {resultados.rutas_activas_detalle?.length > 0 && (
               <div className="bg-white border border-slate-200 rounded-xl p-4 overflow-x-auto">
-                <h4 className="text-sm font-bold text-slate-700 mb-3">Rutas activas (AG)</h4>
+                <h4 className="text-sm font-bold text-slate-700 mb-3">Rutas activas</h4>
                 <table className="w-full text-xs">
-                  <thead><tr className="bg-slate-50"><th className="p-2 text-left">Origen</th><th className="p-2 text-left">Destino</th><th className="p-2 text-right">$/ton</th><th className="p-2 text-right">Cap</th></tr></thead>
+                  <thead><tr className="bg-slate-50"><th className="p-2 text-left">Origen</th><th className="p-2 text-left">Destino</th><th className="p-2 text-right">Flujo (ton)</th></tr></thead>
                   <tbody>
-                    {resultados.rutas_ag.slice(0,15).map((r,i) => (
+                    {resultados.rutas_activas_detalle.slice(0,15).map((r,i) => (
                       <tr key={i} className="border-t border-slate-100">
                         <td className="p-2 font-mono">{r.origen}</td><td className="p-2 font-mono">{r.destino}</td>
-                        <td className="p-2 text-right">${r.costo}</td><td className="p-2 text-right">{r.capacidad}</td>
+                        <td className="p-2 text-right font-mono">{Number(r.flujo).toFixed(2)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -298,8 +264,8 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
       {!resultados && !cargando && (
         <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-3">
           <FaChartBar className="text-5xl" />
-          <p className="text-sm">Ejecuta la optimización para ver ganancia, flujos y convergencia del AG.</p>
-          <p className="text-xs text-slate-300">Tiempo estimado: 20–40 segundos con la red completa.</p>
+          <p className="text-sm">Ejecuta la optimización para ver ganancia, flujos y rutas activas.</p>
+          <p className="text-xs text-slate-300">Optimización por grafos sobre la red completa.</p>
         </div>
       )}
     </div>
@@ -309,7 +275,7 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
 const SUB_ANALISIS = [
   { id: 'ruta',      Icono: FaMapMarkedAlt, label: 'Ruta Óptima',  desc: 'Dijkstra — menor costo' },
   { id: 'flujo',     Icono: FaWater,        label: 'Flujo Máximo', desc: 'Ford-Fulkerson — cuello de botella' },
-  { id: 'optimizar', Icono: FaBolt,         label: 'Optimización', desc: 'AG + Gradiente — red completa' },
+  { id: 'optimizar', Icono: FaBolt,         label: 'Optimización', desc: 'Flujo de mínimo costo — red completa' },
 ]
 
 export default function VistaEvaluar({

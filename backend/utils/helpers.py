@@ -573,12 +573,12 @@ def flujos_a_dict(grafo: GrafoRed) -> dict:
     }
 
 
-def calcular_metricas_resultado(grafo: GrafoRed, resultado_gradiente: dict) -> dict:
+def calcular_metricas_resultado(grafo: GrafoRed, resultado_grafo: dict) -> dict:
     """Calcula KPIs de la solución para el panel de la interfaz."""
     destinos = grafo.obtener_nodos_por_tipo(TipoNodo.DESTINO)
     demanda_total = sum(d.demanda for d in destinos)
 
-    flujos = resultado_gradiente.get("flujos", {})
+    flujos = resultado_grafo.get("flujos", {})
     demanda_cumplida = 0.0
     for destino in destinos:
         flujo_recibido = sum(
@@ -595,8 +595,8 @@ def calcular_metricas_resultado(grafo: GrafoRed, resultado_gradiente: dict) -> d
         "demanda_total": demanda_total,
         "demanda_cumplida": round(demanda_cumplida, 2),
         "porcentaje_demanda_cumplida": round(pct_cumplida, 2),
-        "costo_total": resultado_gradiente.get("costo_minimo", 0.0),
-        "ganancia_total": resultado_gradiente.get("ganancia", 0.0),
+        "costo_total": resultado_grafo.get("costo_minimo", 0.0),
+        "ganancia_total": resultado_grafo.get("ganancia", 0.0),
         "num_nodos": len(grafo.nodos),
         "num_aristas": len(grafo.aristas),
         "num_origenes": len(grafo.obtener_nodos_por_tipo(TipoNodo.ORIGEN)),

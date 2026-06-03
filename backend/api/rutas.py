@@ -11,7 +11,7 @@ Rutas disponibles:
   POST   /api/aristas                 → crea una arista en Supabase
   PUT    /api/aristas/{id}            → actualiza una arista en Supabase
   DELETE /api/aristas/{id}           → elimina una arista de Supabase
-  POST /api/optimizar                 → ejecuta AG + Gradiente (carga la red desde Supabase)
+  POST /api/optimizar                 → optimización por grafos (Flujo Mínimo Costo)
   GET  /api/resultados                → retorna la última solución
   GET  /api/metricas                  → KPIs de la solución actual
   GET  /api/grafo_json                → datos del grafo para visualizar en mapa

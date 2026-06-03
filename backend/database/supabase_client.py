@@ -110,11 +110,11 @@ def guardar_solucion(resultado: dict) -> None:
         sb.table("soluciones").insert({
             "tipo_escenario": "base",
             "ganancia_total": resultado.get("ganancia", 0.0),
-            "costo_total": resultado.get("gradiente", {}).get("costo_minimo", 0.0),
-            "num_rutas_activas": resultado.get("ag", {}).get("num_rutas_activas", 0),
+            "costo_total": resultado.get("grafo", {}).get("costo_minimo", 0.0),
+            "num_rutas_activas": resultado.get("grafo", {}).get("num_rutas_activas", 0),
             "porcentaje_demanda_cumplida": resultado.get("metricas", {}).get("porcentaje_demanda_cumplida", 0.0),
-            "flujos_json": resultado.get("gradiente", {}).get("flujos", {}),
-            "stocks_json": resultado.get("gradiente", {}).get("stocks", {}),
+            "flujos_json": resultado.get("grafo", {}).get("flujos", {}),
+            "stocks_json": resultado.get("grafo", {}).get("stocks", {}),
             "metricas_json": resultado.get("metricas", {}),
         }).execute()
     except Exception as e:

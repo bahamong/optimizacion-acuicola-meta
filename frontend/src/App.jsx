@@ -181,9 +181,9 @@ export default function App() {
   const ejecutarOptimizacion = async () => {
     try {
       setCargando(true);
-      setMsgCarga("Ejecutando Algoritmo Genético...");
+      setMsgCarga("Ejecutando optimización por grafos...");
       const r1 = await api.ejecutarOptimizacion();
-      setMsgCarga("Procesando resultados del gradiente...");
+      setMsgCarga("Procesando resultados...");
       const [detRes, gRes, mRes] = await Promise.all([
         api.obtenerResultados(),
         api.obtenerGrafo(),
@@ -191,9 +191,8 @@ export default function App() {
       ]);
       setResultados({
         ...r1.data,
-        historialAG: detRes.data?.ag?.historial_fitness || [],
-        flujos: detRes.data?.gradiente?.flujos || {},
-        rutas_ag: detRes.data?.ag?.rutas_activas || [],
+        flujos: detRes.data?.grafo?.flujos || {},
+        rutas_activas_detalle: detRes.data?.grafo?.rutas_activas || [],
       });
       setGrafo(gRes.data);
       setMetricas(mRes.data);
