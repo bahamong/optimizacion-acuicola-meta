@@ -375,7 +375,7 @@ export default function VistaEvaluar({
 
       {sinDatos && (
         <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-700">
-          <FaExclamationTriangle /> No hay datos. Ve a <em>Datos de la Red</em> y aplica los datos al sistema.
+          <FaExclamationTriangle /> No hay datos. Ve a <em>Datos de la Red</em> y crea nodos y rutas.
         </div>
       )}
 

@@ -18,9 +18,9 @@ export default function VistaMapa({
   if (!grafo) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-slate-500 gap-2">
-        <p className="text-base">No hay datos cargados aún.</p>
+        <p className="text-base">No hay datos en la base de datos.</p>
         <p className="text-sm">
-          Ve a <strong>Datos de la Red</strong> y aplica los datos al sistema.
+          Ve a <strong>Datos de la Red</strong> y crea nodos y rutas.
         </p>
       </div>
     );

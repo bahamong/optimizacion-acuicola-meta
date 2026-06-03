@@ -68,14 +68,14 @@ app.include_router(router)
 
 @app.on_event("startup")
 async def startup():
-    """Al arrancar: cargar la red por defecto."""
+    """Al arrancar: verificar la conexión con Supabase."""
     logger.info("Iniciando servidor Acuícola Real del Meta (Supabase)...")
     try:
-        from api.rutas import cargar_red_defecto
-        cargar_red_defecto()
-        logger.info("Red por defecto cargada automáticamente al inicio.")
+        from database.supabase_client import listar_nodos
+        nodos = listar_nodos()
+        logger.info(f"Conexión con Supabase OK — {len(nodos)} nodos en la base de datos.")
     except Exception as e:
-        logger.warning(f"No se pudo pre-cargar la red: {e}")
+        logger.warning(f"No se pudo conectar con Supabase al inicio: {e}")
 
 
 if __name__ == "__main__":

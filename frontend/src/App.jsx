@@ -7,6 +7,34 @@ import VistaMapa from "./components/VistaMapa.jsx";
 import VistaEvaluar from "./components/VistaEvaluar.jsx";
 import * as api from "./services/api.js";
 
+// Mapea un nodo del frontend (lat/lng) al payload que espera la API.
+const toNodoPayload = (n) => ({
+  id: n.id,
+  tipo: n.tipo,
+  nombre: n.nombre,
+  municipio: n.municipio || "",
+  departamento: n.departamento || "",
+  lat: Number(n.lat ?? n.latitud ?? 0),
+  lng: Number(n.lng ?? n.longitud ?? 0),
+  capacidad: Number(n.capacidad) || 0,
+  oferta: Number(n.oferta) || 0,
+  demanda: Number(n.demanda) || 0,
+  tasa_merma: Number(n.tasa_merma) || 0,
+  tasa_calidad: Number(n.tasa_calidad ?? 1),
+  costo_operacion: Number(n.costo_operacion) || 0,
+});
+
+// Mapea una arista del frontend (origen/destino/costo) al payload de la API.
+const toAristaPayload = (a) => ({
+  origen: a.origen || a.id_origen,
+  destino: a.destino || a.id_destino,
+  costo: Number(a.costo ?? a.costo_transporte) || 0,
+  capacidad: Number(a.capacidad) || 0,
+  distancia: Number(a.distancia) || 0,
+  estado: a.estado || "activa",
+  umbral_calidad: Number(a.umbral_calidad) || 0,
+});
+
 export default function App() {
   const [vista, setVista] = useState("datos");
   const [rutaDestacada, setRutaDestacada] = useState([]);
@@ -19,186 +47,135 @@ export default function App() {
   const [msgCarga, setMsgCarga] = useState("");
   const [error, setError] = useState(null);
   const [ok, setOk] = useState(null);
-  const [sincronizado, setSincronizado] = useState(false);
 
-  const cargarRedDefecto = useCallback(async () => {
+  // Recarga nodos y aristas directamente desde Supabase (datos en vivo).
+  const refrescar = useCallback(async ({ silencioso = false } = {}) => {
+    if (!silencioso) setCargando(true);
     try {
-      setCargando(true);
-      setMsgCarga("Cargando red Acuícola Real del Meta...");
-      await api.cargarRedDefecto();
-      const [gRes, mRes] = await Promise.all([
-        api.obtenerGrafo(),
-        api.obtenerMetricas(),
+      const [nRes, aRes] = await Promise.all([
+        api.obtenerNodos(),
+        api.obtenerAristas(),
       ]);
-      setNodos(gRes.data.nodos);
-      setAristas(gRes.data.aristas);
-      setGrafo(gRes.data);
-      setMetricas(mRes.data);
-      setSincronizado(true);
-      setOk(
-        `Red cargada: ${gRes.data.nodos.length} nodos, ${gRes.data.aristas.length} rutas.`,
-      );
+      setNodos(nRes.data);
+      setAristas(aRes.data);
+      // El grafo y las métricas requieren que exista una red válida en la BD.
+      try {
+        const [gRes, mRes] = await Promise.all([
+          api.obtenerGrafo(),
+          api.obtenerMetricas(),
+        ]);
+        setGrafo(gRes.data);
+        setMetricas(mRes.data);
+      } catch {
+        setGrafo(null);
+        setMetricas(null);
+      }
       setError(null);
     } catch {
       setError("No se pudo conectar con el backend en localhost:8000");
     } finally {
-      setCargando(false);
-      setMsgCarga("");
+      if (!silencioso) setCargando(false);
     }
   }, []);
 
   useEffect(() => {
-    cargarRedDefecto();
-  }, [cargarRedDefecto]);
+    refrescar();
+  }, [refrescar]);
 
-  const aplicarAlSistema = async () => {
+  // ── CRUD de nodos contra Supabase ───────────────────────────────────────────
+  const onCrearNodo = async (nodo) => {
     try {
-      setCargando(true);
-      setMsgCarga("Enviando datos al sistema...");
-      const payload = {
-        nodos: nodos.map((n) => ({
-          id: n.id,
-          tipo: n.tipo,
-          nombre: n.nombre,
-          municipio: n.municipio || "",
-          departamento: n.departamento || "",
-          latitud: Number(n.lat || n.latitud || 0),
-          longitud: Number(n.lng || n.longitud || 0),
-          capacidad: Number(n.capacidad) || 0,
-          oferta: Number(n.oferta) || 0,
-          demanda: Number(n.demanda) || 0,
-          tasa_merma: Number(n.tasa_merma) || 0,
-          tasa_calidad: Number(n.tasa_calidad ?? 1),
-          costo_operacion: Number(n.costo_operacion) || 0,
-        })),
-        aristas: aristas.map((a) => ({
-          id_origen: a.origen || a.id_origen,
-          id_destino: a.destino || a.id_destino,
-          costo_transporte: Number(a.costo || a.costo_transporte),
-          capacidad: Number(a.capacidad),
-          distancia: Number(a.distancia),
-          estado: a.estado || "activa",
-          umbral_calidad: Number(a.umbral_calidad) || 0,
-        })),
-      };
-      await api.cargarDatos(payload);
-      const [gRes, mRes] = await Promise.all([
-        api.obtenerGrafo(),
-        api.obtenerMetricas(),
-      ]);
-      setGrafo(gRes.data);
-      setMetricas(mRes.data);
-      setSincronizado(true);
+      await api.crearNodo(toNodoPayload(nodo));
+      await refrescar({ silencioso: true });
       setResultados(null);
-      setOk("Datos aplicados correctamente.");
+      setOk(`Nodo "${nodo.nombre}" creado.`);
       setError(null);
     } catch (e) {
-      setError(
-        "Error al aplicar datos: " + (e.response?.data?.detail || e.message),
-      );
-    } finally {
-      setCargando(false);
-      setMsgCarga("");
+      setError("Error al crear nodo: " + (e.response?.data?.detail || e.message));
     }
   };
 
-  const editarNodoDesdeMapа = async (nodoId, cambios) => {
-    const nodosActualizados = nodos.map((n) =>
-      n.id === nodoId ? { ...n, ...cambios } : n,
+  const onActualizarNodo = async (id, nodo) => {
+    try {
+      await api.actualizarNodo(id, toNodoPayload(nodo));
+      await refrescar({ silencioso: true });
+      setResultados(null);
+      setOk(`Nodo ${id} actualizado.`);
+      setError(null);
+    } catch (e) {
+      setError("Error al actualizar nodo: " + (e.response?.data?.detail || e.message));
+    }
+  };
+
+  const onEliminarNodo = async (id) => {
+    try {
+      await api.eliminarNodo(id);
+      await refrescar({ silencioso: true });
+      setResultados(null);
+      setOk(`Nodo ${id} eliminado.`);
+      setError(null);
+    } catch (e) {
+      setError("Error al eliminar nodo: " + (e.response?.data?.detail || e.message));
+    }
+  };
+
+  // ── CRUD de aristas contra Supabase ─────────────────────────────────────────
+  const onCrearArista = async (arista) => {
+    try {
+      await api.crearArista(toAristaPayload(arista));
+      await refrescar({ silencioso: true });
+      setResultados(null);
+      setOk("Ruta creada.");
+      setError(null);
+    } catch (e) {
+      setError("Error al crear ruta: " + (e.response?.data?.detail || e.message));
+    }
+  };
+
+  const onActualizarArista = async (id, arista) => {
+    try {
+      await api.actualizarArista(id, toAristaPayload(arista));
+      await refrescar({ silencioso: true });
+      setResultados(null);
+      setOk("Ruta actualizada.");
+      setError(null);
+    } catch (e) {
+      setError("Error al actualizar ruta: " + (e.response?.data?.detail || e.message));
+    }
+  };
+
+  const onEliminarArista = async (id) => {
+    try {
+      await api.eliminarArista(id);
+      await refrescar({ silencioso: true });
+      setResultados(null);
+      setOk("Ruta eliminada.");
+      setError(null);
+    } catch (e) {
+      setError("Error al eliminar ruta: " + (e.response?.data?.detail || e.message));
+    }
+  };
+
+  // ── Edición rápida desde el mapa ────────────────────────────────────────────
+  const editarNodoDesdeMapa = async (nodoId, cambios) => {
+    const actual = nodos.find((n) => n.id === nodoId);
+    if (!actual) return;
+    await onActualizarNodo(nodoId, { ...actual, ...cambios });
+  };
+
+  const editarAristaDesdeMapa = async (origenId, destinoId, cambios) => {
+    const actual = aristas.find(
+      (a) =>
+        (a.origen || a.id_origen) === origenId &&
+        (a.destino || a.id_destino) === destinoId,
     );
-    setNodos(nodosActualizados);
-    try {
-      const payload = {
-        nodos: nodosActualizados.map((n) => ({
-          id: n.id,
-          tipo: n.tipo,
-          nombre: n.nombre,
-          municipio: n.municipio || "",
-          departamento: n.departamento || "",
-          latitud: Number(n.lat || n.latitud || 0),
-          longitud: Number(n.lng || n.longitud || 0),
-          capacidad: Number(n.capacidad) || 0,
-          oferta: Number(n.oferta) || 0,
-          demanda: Number(n.demanda) || 0,
-          tasa_merma: Number(n.tasa_merma) || 0,
-          tasa_calidad: Number(n.tasa_calidad ?? 1),
-          costo_operacion: Number(n.costo_operacion) || 0,
-        })),
-        aristas: aristas.map((a) => ({
-          id_origen: a.origen || a.id_origen,
-          id_destino: a.destino || a.id_destino,
-          costo_transporte: Number(a.costo || a.costo_transporte),
-          capacidad: Number(a.capacidad),
-          distancia: Number(a.distancia),
-          estado: a.estado || "activa",
-          umbral_calidad: Number(a.umbral_calidad) || 0,
-        })),
-      };
-      await api.cargarDatos(payload);
-      const gRes = await api.obtenerGrafo();
-      setGrafo(gRes.data);
-      setOk(`Nodo ${nodoId} actualizado.`);
-    } catch (e) {
-      setError(
-        "Error al actualizar nodo: " + (e.response?.data?.detail || e.message),
-      );
-    }
-  };
-
-  const editarAristaDesdeMapа = async (origenId, destinoId, cambios) => {
-    const aristasActualizadas = aristas.map((a) => {
-      const o = a.origen || a.id_origen;
-      const d = a.destino || a.id_destino;
-      if (o === origenId && d === destinoId) {
-        return {
-          ...a,
-          costo: cambios.costo ?? (a.costo || a.costo_transporte),
-          costo_transporte: cambios.costo ?? (a.costo || a.costo_transporte),
-          capacidad: cambios.capacidad ?? a.capacidad,
-          estado: cambios.estado ?? a.estado ?? "activa",
-          _situacion: cambios._situacion ?? a._situacion,
-          _costoBase: cambios._costoBase ?? a._costoBase,
-        };
-      }
-      return a;
+    if (!actual?.id) return;
+    await onActualizarArista(actual.id, {
+      ...actual,
+      costo: cambios.costo ?? (actual.costo ?? actual.costo_transporte),
+      capacidad: cambios.capacidad ?? actual.capacidad,
+      estado: cambios.estado ?? actual.estado ?? "activa",
     });
-    setAristas(aristasActualizadas);
-    try {
-      const payload = {
-        nodos: nodos.map((n) => ({
-          id: n.id,
-          tipo: n.tipo,
-          nombre: n.nombre,
-          municipio: n.municipio || "",
-          departamento: n.departamento || "",
-          latitud: Number(n.lat || n.latitud || 0),
-          longitud: Number(n.lng || n.longitud || 0),
-          capacidad: Number(n.capacidad) || 0,
-          oferta: Number(n.oferta) || 0,
-          demanda: Number(n.demanda) || 0,
-          tasa_merma: Number(n.tasa_merma) || 0,
-          tasa_calidad: Number(n.tasa_calidad ?? 1),
-          costo_operacion: Number(n.costo_operacion) || 0,
-        })),
-        aristas: aristasActualizadas.map((a) => ({
-          id_origen: a.origen || a.id_origen,
-          id_destino: a.destino || a.id_destino,
-          costo_transporte: Number(a.costo || a.costo_transporte),
-          capacidad: Number(a.capacidad),
-          distancia: Number(a.distancia),
-          estado: a.estado || "activa",
-          umbral_calidad: Number(a.umbral_calidad) || 0,
-        })),
-      };
-      await api.cargarDatos(payload);
-      const gRes = await api.obtenerGrafo();
-      setGrafo(gRes.data);
-      setOk(`Ruta ${origenId}→${destinoId} actualizada.`);
-    } catch (e) {
-      setError(
-        "Error al actualizar ruta: " + (e.response?.data?.detail || e.message),
-      );
-    }
   };
 
   const ejecutarOptimizacion = async () => {
@@ -241,17 +218,12 @@ export default function App() {
       <VistaDatos
         nodos={nodos}
         aristas={aristas}
-        onNodosChange={(v) => {
-          setNodos(v);
-          setSincronizado(false);
-        }}
-        onAristasChange={(v) => {
-          setAristas(v);
-          setSincronizado(false);
-        }}
-        onAplicar={aplicarAlSistema}
-        onCargarDefecto={cargarRedDefecto}
-        sincronizado={sincronizado}
+        onCrearNodo={onCrearNodo}
+        onActualizarNodo={onActualizarNodo}
+        onEliminarNodo={onEliminarNodo}
+        onCrearArista={onCrearArista}
+        onActualizarArista={onActualizarArista}
+        onEliminarArista={onEliminarArista}
         cargando={cargando}
       />
     ),
@@ -264,8 +236,8 @@ export default function App() {
             grafo={grafo}
             metricas={metricas}
             rutaDestacada={rutaDestacada}
-            onNodoEdit={editarNodoDesdeMapа}
-            onAristaEdit={editarAristaDesdeMapа}
+            onNodoEdit={editarNodoDesdeMapa}
+            onAristaEdit={editarAristaDesdeMapa}
           />
         </div>
 
@@ -278,7 +250,7 @@ export default function App() {
             resultados={resultados}
             onOptimizar={ejecutarOptimizacion}
             onVerEnMapa={(ruta) => setRutaDestacada(ruta)}
-            sincronizado={sincronizado}
+            sincronizado={true}
             cargando={cargando}
             msgCarga={msgCarga}
           />
@@ -289,11 +261,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-100 font-sans">
-      <Sidebar
-        vistaActual={vista}
-        onCambiar={setVista}
-        sincronizado={sincronizado}
-      />
+      <Sidebar vistaActual={vista} onCambiar={setVista} sincronizado={true} />
 
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Topbar */}

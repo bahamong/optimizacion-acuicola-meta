@@ -9,10 +9,20 @@ const api = axios.create({
 })
 
 // ── Red ──────────────────────────────────────────────────────────────────────
-export const cargarRedDefecto = () => api.post('/api/cargar_red_defecto')
-export const cargarDatos      = (datos) => api.post('/api/cargar_datos', datos)
 export const obtenerGrafo     = () => api.get('/api/grafo_json')
 export const obtenerMetricas  = () => api.get('/api/metricas')
+
+// ── CRUD de nodos (Supabase en vivo) ──────────────────────────────────────────
+export const obtenerNodos    = () => api.get('/api/nodos')
+export const crearNodo       = (nodo)        => api.post('/api/nodos', nodo)
+export const actualizarNodo  = (id, nodo)    => api.put(`/api/nodos/${id}`, nodo)
+export const eliminarNodo    = (id)          => api.delete(`/api/nodos/${id}`)
+
+// ── CRUD de aristas (Supabase en vivo) ────────────────────────────────────────
+export const obtenerAristas    = () => api.get('/api/aristas')
+export const crearArista       = (arista)     => api.post('/api/aristas', arista)
+export const actualizarArista  = (id, arista) => api.put(`/api/aristas/${id}`, arista)
+export const eliminarArista    = (id)         => api.delete(`/api/aristas/${id}`)
 
 // ── Optimización ──────────────────────────────────────────────────────────────
 export const ejecutarOptimizacion = () => api.post('/api/optimizar')
