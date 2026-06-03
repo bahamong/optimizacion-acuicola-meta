@@ -150,6 +150,9 @@ def _obtener_ruta_desde_resultado(resultado: dict) -> list:
 
 resultado_optimizacion: Optional[dict] = None
 ganancia_base: float = 0.0
+# Flujos de la última optimización, indexados por "origen→destino".
+# Se superponen sobre el grafo recargado para que el mapa coloree las rutas.
+flujos_ultimos: Dict[str, float] = {}
 
 
 # ── Modelos Pydantic ──────────────────────────────────────────────────────────
@@ -301,9 +304,17 @@ def _persistir_escenario(tipo: str, params: dict, resultado: dict) -> None:
 
 def _invalidar_optimizacion() -> None:
     """Tras modificar la red, el último resultado de optimización queda obsoleto."""
-    global resultado_optimizacion, ganancia_base
+    global resultado_optimizacion, ganancia_base, flujos_ultimos
     resultado_optimizacion = None
     ganancia_base = 0.0
+    flujos_ultimos = {}
+
+
+def _aplicar_flujos(grafo: GrafoRed) -> None:
+    """Superpone los flujos de la última optimización sobre el grafo recargado,
+    para que /api/grafo_json devuelva flujo y utilización por arista."""
+    for (u, v), arista in grafo.aristas.items():
+        arista.flujo_actual = flujos_ultimos.get(f"{u}→{v}", 0.0)
 
 
 # ── Endpoints base ────────────────────────────────────────────────────────────
@@ -443,7 +454,7 @@ def optimizar():
       2. Validación de restricciones
       3. Cálculo de métricas finales
     """
-    global resultado_optimizacion, ganancia_base
+    global resultado_optimizacion, ganancia_base, flujos_ultimos
 
     grafo = _cargar_grafo()
 
@@ -452,6 +463,12 @@ def optimizar():
 
         opt = OptimizadorGrafo(grafo)
         resultado_grafo = opt.ejecutar()
+
+        # Guardar los flujos para superponerlos al recargar el grafo en el mapa.
+        flujos_ultimos = {
+            f"{a.id_origen}→{a.id_destino}": a.flujo_actual
+            for a in grafo.aristas.values()
+        }
 
         flujos_dict = {
             (a.id_origen, a.id_destino): a.flujo_actual
@@ -553,8 +570,10 @@ def obtener_metricas():
 
 @router.get("/api/grafo_json")
 def obtener_grafo_json():
-    """Retorna nodos y aristas en formato JSON para visualización en el mapa."""
+    """Retorna nodos y aristas en formato JSON para visualización en el mapa.
+    Incluye los flujos de la última optimización si existe."""
     grafo = _cargar_grafo()
+    _aplicar_flujos(grafo)
     return _to_native(grafo.to_dict())
 
 

@@ -5,6 +5,11 @@ Optimización por Flujo de Mínimo Costo (algoritmo de grafos puro).
 Usa max_flow_min_cost de NetworkX: maximiza el flujo entregado
 al menor costo de transporte posible, respetando oferta, demanda
 y capacidad de cada arista.
+
+Las capacidades y los costos se escalan a enteros antes de invocar
+el algoritmo: NetworkX resuelve el flujo de mínimo costo de forma
+exacta y rápida con datos enteros (con flotantes puede volverse
+extremadamente lento).
 """
 
 from typing import Dict
@@ -17,6 +22,9 @@ from models.nodo import TipoNodo
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Factor para convertir costos ($/ton, flotante) a enteros sin perder precisión.
+ESCALA_COSTO = 100
 
 
 class OptimizadorGrafo:
@@ -31,18 +39,25 @@ class OptimizadorGrafo:
         self.destinos = grafo.obtener_nodos_por_tipo(TipoNodo.DESTINO)
 
     def _construir_red(self) -> nx.DiGraph:
+        """Red dirigida con super-fuente (__S__) y super-sumidero (__T__),
+        con capacidades y pesos enteros para max_flow_min_cost."""
         G = nx.DiGraph()
         G.add_node("__S__")
         G.add_node("__T__")
 
         for origen in self.origenes:
-            G.add_edge("__S__", origen.id, capacity=origen.oferta, weight=0)
+            G.add_edge("__S__", origen.id, capacity=int(round(origen.oferta)), weight=0)
 
         for destino in self.destinos:
-            G.add_edge(destino.id, "__T__", capacity=destino.demanda, weight=0)
+            G.add_edge(destino.id, "__T__", capacity=int(round(destino.demanda)), weight=0)
 
         for (u, v), arista in self.grafo.aristas.items():
-            G.add_edge(u, v, capacity=arista.capacidad, weight=arista.costo_transporte)
+            G.add_edge(
+                u,
+                v,
+                capacity=int(round(arista.capacidad)),
+                weight=int(round(arista.costo_transporte * ESCALA_COSTO)),
+            )
 
         return G
 
@@ -55,7 +70,9 @@ class OptimizadorGrafo:
                 G, "__S__", "__T__", capacity="capacity", weight="weight"
             )
         except Exception as e:
-            logger.warning(f"max_flow_min_cost falló ({e}), usando maximum_flow como fallback")
+            logger.warning(
+                f"max_flow_min_cost falló ({e}), usando maximum_flow como fallback"
+            )
             try:
                 _, flujo_dict = nx.maximum_flow(G, "__S__", "__T__", capacity="capacity")
             except Exception:
@@ -66,17 +83,26 @@ class OptimizadorGrafo:
         costo_total = 0.0
 
         for (u, v), arista in self.grafo.aristas.items():
-            flujo = flujo_dict.get(u, {}).get(v, 0.0)
+            flujo = float(flujo_dict.get(u, {}).get(v, 0.0))
             arista.flujo_actual = max(0.0, flujo)
+
             if flujo > 1e-6:
-                rutas_activas.append(arista)
                 flujos_optimos[f"{u}→{v}"] = round(flujo, 4)
                 costo_total += flujo * arista.costo_transporte
+                rutas_activas.append({
+                    "origen": u,
+                    "destino": v,
+                    "flujo": round(flujo, 4),
+                    "costo": round(arista.costo_transporte, 4),
+                    "capacidad": arista.capacidad,
+                    "utilizacion": round(arista.utilizacion, 4),
+                })
 
-        ganancia = self._calcular_ganancia(flujo_dict)
+        ganancia = self._calcular_ganancia()
 
         logger.info(
-            f"Optimización por grafos: {len(rutas_activas)} rutas activas, ganancia={ganancia:.2f}"
+            f"Optimización por grafos: {len(rutas_activas)} rutas activas, "
+            f"costo={costo_total:.2f}, ganancia={ganancia:.2f}"
         )
 
         return {
@@ -87,42 +113,24 @@ class OptimizadorGrafo:
             "stocks": {},
             "num_rutas_activas": len(rutas_activas),
             "num_rutas_total": len(self.grafo.aristas),
-            "rutas_activas": [
-                {
-                    "origen": a.id_origen,
-                    "destino": a.id_destino,
-                    "flujo": round(a.flujo_actual, 4),
-                }
-                for a in rutas_activas
-            ],
+            "rutas_activas": rutas_activas,
         }
 
-    def _calcular_ganancia(self, flujo_dict: dict) -> float:
-        ingreso = sum(
-            min(
-                sum(
-                    flujo_dict.get(u, {}).get(destino.id, 0.0)
-                    for u in self.grafo.vecinos_entrada(destino.id)
-                ),
-                destino.demanda,
-            ) * config.PRECIO_VENTA_TON
-            for destino in self.destinos
-        )
+    def _calcular_ganancia(self) -> float:
+        """Ingreso por demanda cubierta − costo de transporte − penalización
+        por demanda no satisfecha. Usa los flujos ya asignados en el grafo."""
+        ingreso = 0.0
+        penalizacion = 0.0
 
-        costo = sum(
-            flujo_dict.get(u, {}).get(v, 0.0) * arista.costo_transporte
-            for (u, v), arista in self.grafo.aristas.items()
-        )
+        for destino in self.destinos:
+            recibido = sum(
+                self.grafo.obtener_arista(u, destino.id).flujo_actual
+                for u in self.grafo.vecinos_entrada(destino.id)
+            )
+            cubierto = min(recibido, destino.demanda)
+            ingreso += cubierto * config.PRECIO_VENTA_TON
+            penalizacion += max(0.0, destino.demanda - recibido) * config.PENALIZACION_INCUMPLIMIENTO
 
-        penalizacion = sum(
-            max(
-                0.0,
-                destino.demanda - sum(
-                    flujo_dict.get(u, {}).get(destino.id, 0.0)
-                    for u in self.grafo.vecinos_entrada(destino.id)
-                ),
-            ) * config.PENALIZACION_INCUMPLIMIENTO
-            for destino in self.destinos
-        )
+        costo = sum(a.flujo_actual * a.costo_transporte for a in self.grafo.aristas.values())
 
         return ingreso - costo - penalizacion
