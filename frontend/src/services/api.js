@@ -25,7 +25,9 @@ export const actualizarArista  = (id, arista) => api.put(`/api/aristas/${id}`, a
 export const eliminarArista    = (id)         => api.delete(`/api/aristas/${id}`)
 
 // ── Optimización ──────────────────────────────────────────────────────────────
-export const ejecutarOptimizacion = () => api.post('/api/optimizar')
+// metodo: 'grafo' (Flujo de Mínimo Costo) | 'genetico' (Algoritmo Genético).
+export const ejecutarOptimizacion = (metodo = 'grafo') =>
+  api.post('/api/optimizar', null, { params: { metodo } })
 export const obtenerResultados    = () => api.get('/api/resultados')
 
 // ── Algoritmos de grafos ──────────────────────────────────────────────────────

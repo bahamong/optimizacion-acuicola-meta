@@ -180,11 +180,15 @@ export default function App() {
     });
   };
 
-  const ejecutarOptimizacion = async () => {
+  const ejecutarOptimizacion = async (metodo = "grafo") => {
     try {
       setCargando(true);
-      setMsgCarga("Ejecutando optimización por grafos...");
-      const r1 = await api.ejecutarOptimizacion();
+      setMsgCarga(
+        metodo === "genetico"
+          ? "Ejecutando Algoritmo Genético..."
+          : "Ejecutando Flujo de Mínimo Costo...",
+      );
+      const r1 = await api.ejecutarOptimizacion(metodo);
       setMsgCarga("Procesando resultados...");
       const [detRes, gRes, mRes] = await Promise.all([
         api.obtenerResultados(),
@@ -193,12 +197,22 @@ export default function App() {
       ]);
       setResultados({
         ...r1.data,
+        metodo: r1.data?.metodo || metodo,
+        algoritmo: r1.data?.algoritmo || detRes.data?.grafo?.algoritmo,
         flujos: detRes.data?.grafo?.flujos || {},
         rutas_activas_detalle: detRes.data?.grafo?.rutas_activas || [],
         acopios_penalizados: detRes.data?.grafo?.acopios_penalizados || [],
         acopios_activos: detRes.data?.grafo?.acopios_activos || [],
         merma_total_estimada: detRes.data?.grafo?.merma_total_estimada ?? 0,
         costo_operacion_acopios: detRes.data?.grafo?.costo_operacion_acopios ?? 0,
+        generaciones_ejecutadas: detRes.data?.grafo?.generaciones_ejecutadas,
+        historia_fitness: detRes.data?.grafo?.historia_fitness,
+        historia_generaciones: detRes.data?.grafo?.historia_generaciones,
+        parametros_ag: detRes.data?.grafo?.parametros_ag,
+        fitness_inicial: detRes.data?.grafo?.fitness_inicial,
+        fitness_final: detRes.data?.grafo?.fitness_final,
+        num_caminos: detRes.data?.grafo?.num_caminos,
+        validacion: detRes.data?.validacion || null,
       });
       setGrafo(gRes.data);
       setMetricas(mRes.data);
