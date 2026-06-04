@@ -248,7 +248,7 @@ function DetalleViolaciones({ validacion, metodo }) {
       {vDemanda.length > 0 && vOferta.length === 0 && vCapacidad.length === 0 && vBalance.length === 0 && (
         <p className="text-xs text-amber-600 border-t border-amber-200 pt-2">
           {metodo === 'genetico'
-            ? 'El Algoritmo Genético es un método aproximado: puede dejar un déficit pequeño que el método exacto (Flujo de Mínimo Costo) sí llena. Si con ese método el déficit desaparece, la red sí puede cubrir la demanda. Si persiste en ambos, la oferta o las capacidades no alcanzan.'
+            ? 'El Algoritmo Genético es un método aproximado: puede dejar un déficit pequeño que el método exacto (Programación Lineal) sí llena. Si con ese método el déficit desaparece, la red sí puede cubrir la demanda. Si persiste en ambos, la oferta o las capacidades no alcanzan.'
             : 'La oferta total o las capacidades de las rutas no alcanzan para cubrir toda la demanda solicitada.'}
         </p>
       )}
@@ -258,9 +258,9 @@ function DetalleViolaciones({ validacion, metodo }) {
 
 const METODOS_OPT = [
   {
-    id: 'grafo',
-    label: 'Flujo de Mínimo Costo',
-    desc: 'Algoritmo de grafos exacto (max_flow_min_cost).',
+    id: 'lineal',
+    label: 'Programación Lineal',
+    desc: 'Modelo de transporte con transbordo (solver exacto PuLP/CBC).',
     Icono: FaBolt,
   },
   {
@@ -270,6 +270,71 @@ const METODOS_OPT = [
     Icono: FaFlask,
   },
 ]
+
+function ModeloLineal({ resultados }) {
+  if (resultados.num_variables == null) return null
+  const fmt = n => Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
+  const optimo = (resultados.estado_lp || '').toLowerCase() === 'optimal'
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <FaBolt className="text-indigo-600" />
+        <h4 className="text-sm font-bold text-slate-800">Modelo de Programación Lineal — Transporte con Transbordo</h4>
+      </div>
+
+      <p className="text-xs text-slate-500 leading-relaxed">
+        {resultados.modelo_lp || 'Estación → Acopio → … → Supermercado'}. El producto puede pasar por uno o
+        varios acopios encadenados (transbordo). El solver halla cuántas toneladas enviar por cada ruta para
+        maximizar la ganancia (cubrir la mayor demanda posible al menor costo de transporte).
+      </p>
+
+      {/* Estado del solver */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className={`rounded-lg border p-3 ${optimo ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+          <p className="text-xs text-slate-500">Estado del solver</p>
+          <p className={`text-base font-bold ${optimo ? 'text-emerald-700' : 'text-amber-700'}`}>
+            {optimo ? 'Óptimo encontrado' : (resultados.estado_lp || '—')}
+          </p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs text-slate-500">Variables de decisión</p>
+          <p className="text-base font-bold text-slate-800">{resultados.num_variables}</p>
+          <p className="text-[0.7rem] text-slate-400">
+            {resultados.num_rutas_oa ?? '—'} estación→acopio
+            {resultados.num_rutas_aa > 0 && ` · ${resultados.num_rutas_aa} acopio→acopio`}
+            {' '}· {resultados.num_rutas_ad ?? '—'} acopio→super
+          </p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs text-slate-500">Restricciones</p>
+          <p className="text-base font-bold text-slate-800">{resultados.num_restricciones}</p>
+          <p className="text-[0.7rem] text-slate-400">oferta · capacidad · demanda · transbordo</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs text-slate-500">Valor objetivo</p>
+          <p className="text-base font-bold text-indigo-700">${fmt(resultados.valor_objetivo)}</p>
+          <p className="text-[0.7rem] text-slate-400">función a maximizar</p>
+        </div>
+      </div>
+
+      {/* Formulación */}
+      <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-600 flex flex-col gap-1">
+        <p className="font-semibold text-slate-700">Formulación del modelo</p>
+        <p><strong>Variable:</strong> f[u,v] = toneladas enviadas por la ruta u → v (estación→acopio, acopio→acopio o acopio→supermercado)</p>
+        <p><strong>Objetivo:</strong> maximizar ingreso por demanda cubierta − costo de transporte (distancia × toneladas)</p>
+        <p className="mt-1 font-semibold text-slate-700">Restricciones</p>
+        <ol className="ml-4 list-decimal space-y-0.5">
+          <li>Cada estación no envía más de su oferta.</li>
+          <li>Cada acopio no recibe más de su capacidad.</li>
+          <li>Cada supermercado no recibe más de su demanda.</li>
+          <li>Transbordo: lo que entra a un acopio = lo que sale (la merma reduce su capacidad de despacho).</li>
+          <li>Todo pasa por al menos un acopio (no se permite estación → supermercado directo).</li>
+        </ol>
+      </div>
+    </div>
+  )
+}
 
 function EvolucionGenetica({ resultados }) {
   const historia = resultados?.historia_generaciones || []
@@ -439,7 +504,7 @@ function EvolucionGenetica({ resultados }) {
 }
 
 function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, cargando, msgCarga }) {
-  const [metodo, setMetodo] = useState('grafo')
+  const [metodo, setMetodo] = useState('lineal')
   const metodoSel = METODOS_OPT.find(m => m.id === metodo) || METODOS_OPT[0]
 
   return (
@@ -499,7 +564,7 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
           {(resultados.algoritmo || resultados.metodo) && (
             <div className="flex flex-wrap items-center gap-2 rounded-lg bg-indigo-50 border border-indigo-200 px-4 py-2 text-sm text-indigo-700">
               {(resultados.metodo === 'genetico') ? <FaFlask /> : <FaBolt />}
-              <span>Resultado obtenido con <strong>{resultados.algoritmo || (resultados.metodo === 'genetico' ? 'Algoritmo Genético' : 'Flujo de Mínimo Costo')}</strong></span>
+              <span>Resultado obtenido con <strong>{resultados.algoritmo || (resultados.metodo === 'genetico' ? 'Algoritmo Genético' : 'Programación Lineal (Transbordo)')}</strong></span>
               {resultados.metodo === 'genetico' && resultados.generaciones_ejecutadas != null && (
                 <span className="ml-auto text-xs font-normal text-indigo-500">
                   Convergió en {resultados.generaciones_ejecutadas} generaciones
@@ -530,6 +595,9 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
               <DetalleViolaciones validacion={resultados.validacion} metodo={resultados.metodo} />
             )
           )}
+
+          {/* Modelo de programación lineal (solo Programación Lineal) */}
+          {resultados.metodo === 'lineal' && <ModeloLineal resultados={resultados} />}
 
           {/* Proceso evolutivo (solo Algoritmo Genético) */}
           {resultados.metodo === 'genetico' && <EvolucionGenetica resultados={resultados} />}
@@ -611,7 +679,7 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
         <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-3">
           <FaChartBar className="text-5xl" />
           <p className="text-sm">Ejecuta la optimización para ver ganancia, flujos y rutas activas.</p>
-          <p className="text-xs text-slate-300">Optimización por grafos sobre la red completa.</p>
+          <p className="text-xs text-slate-300">Programación lineal o algoritmo genético sobre la red completa.</p>
         </div>
       )}
     </div>
@@ -871,7 +939,7 @@ function ResultadoEscenario({ resultado, onAnalizarIA, iaTexto, iaError, iaLoad,
 const SUB_ANALISIS = [
   { id: 'ruta',      Icono: FaMapMarkedAlt, label: 'Ruta Óptima',  desc: 'Dijkstra — menor costo' },
   { id: 'flujo',     Icono: FaWater,        label: 'Flujo Máximo', desc: 'Ford-Fulkerson — cuello de botella' },
-  { id: 'optimizar', Icono: FaBolt,         label: 'Optimización', desc: 'Flujo de mínimo costo — red completa' },
+  { id: 'optimizar', Icono: FaBolt,         label: 'Optimización', desc: 'Programación lineal o algoritmo genético' },
   { id: 'escenarios',Icono: FaFlask,        label: 'Escenarios',   desc: 'What-If — análisis de sensibilidad' },
 ]
 

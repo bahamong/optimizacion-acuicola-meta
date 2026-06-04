@@ -33,7 +33,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 import config
-from algoritmos.optimizador_grafo import OptimizadorGrafo
+from algoritmos.optimizador_lineal import OptimizadorLineal
 from algoritmos.optimizador_genetico import OptimizadorGenetico
 from algoritmos.validador import ValidadorRestricciones
 from database.supabase_client import (
@@ -479,14 +479,14 @@ def delete_arista(arista_id: int):
 # ── Optimización ──────────────────────────────────────────────────────────────
 
 @router.post("/api/optimizar")
-def optimizar(metodo: str = "grafo"):
+def optimizar(metodo: str = "lineal"):
     """
     Ejecuta la optimización de la red por uno de dos métodos:
-      • metodo="grafo"    → Flujo de Mínimo Costo (max_flow_min_cost, exacto).
+      • metodo="lineal"   → Programación Lineal — Transporte con Transbordo (PuLP).
       • metodo="genetico" → Algoritmo Genético (metaheurística).
 
     En ambos casos:
-      1. Se asignan los flujos óptimos sobre la cadena Origen → Acopio → Destino.
+      1. Se asignan los flujos óptimos sobre la cadena Estación → Acopio → Supermercado.
       2. Se validan las restricciones.
       3. Se calculan las métricas finales.
 
@@ -494,11 +494,11 @@ def optimizar(metodo: str = "grafo"):
     """
     global resultado_optimizacion, ganancia_base, flujos_ultimos
 
-    metodo = (metodo or "grafo").lower()
-    if metodo not in ("grafo", "genetico"):
+    metodo = (metodo or "lineal").lower()
+    if metodo not in ("lineal", "genetico"):
         raise HTTPException(
             status_code=400,
-            detail=f"Método de optimización inválido: '{metodo}'. Usa 'grafo' o 'genetico'.",
+            detail=f"Método de optimización inválido: '{metodo}'. Usa 'lineal' o 'genetico'.",
         )
 
     grafo = _cargar_grafo()
@@ -508,8 +508,8 @@ def optimizar(metodo: str = "grafo"):
             logger.info("=== Iniciando optimización por Algoritmo Genético ===")
             opt = OptimizadorGenetico(grafo)
         else:
-            logger.info("=== Iniciando optimización por grafos (Flujo de Mínimo Costo) ===")
-            opt = OptimizadorGrafo(grafo)
+            logger.info("=== Iniciando optimización por Programación Lineal (Transbordo) ===")
+            opt = OptimizadorLineal(grafo)
 
         resultado_grafo = opt.ejecutar()
 
@@ -566,7 +566,8 @@ def optimizar(metodo: str = "grafo"):
         _guardar_solucion_bd(resultado_optimizacion)
 
         algoritmo = resultado_grafo.get(
-            "algoritmo", "Flujo de Mínimo Costo" if metodo == "grafo" else "Algoritmo Genético"
+            "algoritmo",
+            "Programación Lineal (Transbordo)" if metodo == "lineal" else "Algoritmo Genético",
         )
         logger.info(f"Optimización completada ({algoritmo}). Ganancia={ganancia:.2f}")
 
