@@ -46,12 +46,15 @@ logger = get_logger(__name__)
 
 @dataclass
 class Camino:
-    """Cadena factible Origen → Acopio → Destino con sus dos aristas."""
+    """Cadena factible Estación → Acopio → … → Acopio → Supermercado.
+
+    Soporta transbordo multi-escalón: la lista `aristas` contiene la secuencia
+    de rutas (u, v) que recorre el producto, así que un camino puede pasar por
+    varios acopios encadenados (Origen → A1 → A2 → Destino).
+    """
     origen: str
-    acopio: str
     destino: str
-    arista_oa: Tuple[str, str]   # clave (origen, acopio)
-    arista_ad: Tuple[str, str]   # clave (acopio, destino)
+    aristas: Tuple[Tuple[str, str], ...]   # secuencia de rutas (u, v)
     # Costo unitario "de dirección" usado solo para inicializar la población
     # con buenas semillas (no es el costo real reportado).
     costo_guia: float
@@ -113,41 +116,70 @@ class OptimizadorGenetico:
 
         self.caminos: List[Camino] = self._construir_caminos()
 
-    # ── Construcción de caminos O→A→D ─────────────────────────────────────────
+    # ── Construcción de caminos (transbordo multi-escalón) ─────────────────────
+
+    # Límites para mantener acotado el espacio de búsqueda en redes grandes.
+    MAX_ARISTAS_CAMINO = 4     # hasta O→A→A→A→D (3 saltos entre acopios)
+    MAX_CAMINOS_PAR = 40       # caminos por pareja (origen, destino)
+    MAX_CAMINOS_TOTAL = 4000   # caminos totales
 
     def _construir_caminos(self) -> List[Camino]:
         ids_origen = {o.id for o in self.origenes}
         ids_acopio = {a.id for a in self.acopios}
         ids_destino = {d.id for d in self.destinos}
 
-        # Aristas entrantes a cada acopio (desde orígenes) y salientes (a destinos).
-        entrantes: Dict[str, List[str]] = {a: [] for a in ids_acopio}
-        salientes: Dict[str, List[str]] = {a: [] for a in ids_acopio}
-
+        # Grafo dirigido con las rutas válidas (todas menos estación→supermercado
+        # directa). Permite caminos Origen → Acopio → … → Acopio → Destino.
+        G = nx.DiGraph()
         for (u, v) in self.grafo.aristas.keys():
-            if u in ids_origen and v in ids_acopio:
-                entrantes[v].append(u)
-            elif u in ids_acopio and v in ids_destino:
-                salientes[u].append(v)
+            if u in ids_origen and v in ids_destino:
+                continue  # cadena obligatoria: prohibido el directo
+            G.add_edge(u, v)
+
+        # Costo de operación y penalización de calidad por acopio (por tonelada).
+        costo_op_unit = {}
+        for a in self.acopios:
+            costo_op_unit[a.id] = (
+                a.costo_operacion / max(a.capacidad * 0.5, 1.0) if a.costo_operacion > 0 else 0.0
+            )
 
         caminos: List[Camino] = []
-        for acopio in ids_acopio:
-            for o in entrantes[acopio]:
-                for d in salientes[acopio]:
-                    a_oa = (o, acopio)
-                    a_ad = (acopio, d)
-                    costo_oa = self.grafo.aristas[a_oa].costo_transporte
-                    costo_ad = self.grafo.aristas[a_ad].costo_transporte
-                    costo_op_unit = 0.0
-                    nodo_a = self.grafo.obtener_nodo(acopio)
-                    if nodo_a is not None and nodo_a.costo_operacion > 0:
-                        costo_op_unit = nodo_a.costo_operacion / max(nodo_a.capacidad * 0.5, 1.0)
-                    pen = config.PENALIZACION_CALIDAD if acopio in self._set_penalizados else 0.0
-                    caminos.append(Camino(
-                        origen=o, acopio=acopio, destino=d,
-                        arista_oa=a_oa, arista_ad=a_ad,
-                        costo_guia=costo_oa + costo_ad + costo_op_unit + pen,
-                    ))
+        for o in ids_origen:
+            if o not in G:
+                continue
+            for d in ids_destino:
+                if d not in G:
+                    continue
+                try:
+                    rutas = nx.all_simple_paths(G, o, d, cutoff=self.MAX_ARISTAS_CAMINO)
+                except (nx.NodeNotFound, nx.NetworkXNoPath):
+                    continue
+                contador = 0
+                for nodos in rutas:
+                    # Validar la forma: empieza en origen, termina en destino y los
+                    # intermedios son acopios.
+                    if len(nodos) < 3:
+                        continue
+                    if any(n not in ids_acopio for n in nodos[1:-1]):
+                        continue
+                    aristas = tuple((nodos[i], nodos[i + 1]) for i in range(len(nodos) - 1))
+                    costo = 0.0
+                    for (u, v) in aristas:
+                        costo += self.grafo.aristas[(u, v)].costo_transporte
+                    for n in nodos[1:-1]:
+                        costo += costo_op_unit.get(n, 0.0)
+                        if n in self._set_penalizados:
+                            costo += config.PENALIZACION_CALIDAD
+                    caminos.append(Camino(origen=o, destino=d, aristas=aristas, costo_guia=costo))
+                    contador += 1
+                    if contador >= self.MAX_CAMINOS_PAR:
+                        break
+                if len(caminos) >= self.MAX_CAMINOS_TOTAL:
+                    logger.warning(
+                        f"AG: se alcanzó el tope de {self.MAX_CAMINOS_TOTAL} caminos; "
+                        f"se truncó la enumeración."
+                    )
+                    return caminos
         return caminos
 
     # ── Decodificador: cromosoma → flujos factibles ───────────────────────────
@@ -164,20 +196,20 @@ class OptimizadorGenetico:
 
         for i in orden:
             cam = self.caminos[i]
-            f = min(
-                rem_oferta.get(cam.origen, 0.0),
-                rem_demanda.get(cam.destino, 0.0),
-                rem_cap.get(cam.arista_oa, 0.0),
-                rem_cap.get(cam.arista_ad, 0.0),
-            )
+            # El flujo del camino está limitado por la oferta del origen, la
+            # demanda del destino y la capacidad libre de TODAS sus aristas.
+            f = min(rem_oferta.get(cam.origen, 0.0), rem_demanda.get(cam.destino, 0.0))
+            for e in cam.aristas:
+                f = min(f, rem_cap.get(e, 0.0))
+                if f <= 1e-9:
+                    break
             if f <= 1e-9:
                 continue
             rem_oferta[cam.origen] -= f
             rem_demanda[cam.destino] -= f
-            rem_cap[cam.arista_oa] -= f
-            rem_cap[cam.arista_ad] -= f
-            flujos[cam.arista_oa] = flujos.get(cam.arista_oa, 0.0) + f
-            flujos[cam.arista_ad] = flujos.get(cam.arista_ad, 0.0) + f
+            for e in cam.aristas:
+                rem_cap[e] -= f
+                flujos[e] = flujos.get(e, 0.0) + f
 
         return flujos
 

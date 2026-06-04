@@ -180,13 +180,13 @@ export default function App() {
     });
   };
 
-  const ejecutarOptimizacion = async (metodo = "grafo") => {
+  const ejecutarOptimizacion = async (metodo = "lineal") => {
     try {
       setCargando(true);
       setMsgCarga(
         metodo === "genetico"
           ? "Ejecutando Algoritmo Genético..."
-          : "Ejecutando Flujo de Mínimo Costo...",
+          : "Ejecutando Programación Lineal (Transbordo)...",
       );
       const r1 = await api.ejecutarOptimizacion(metodo);
       setMsgCarga("Procesando resultados...");
@@ -212,6 +212,15 @@ export default function App() {
         fitness_inicial: detRes.data?.grafo?.fitness_inicial,
         fitness_final: detRes.data?.grafo?.fitness_final,
         num_caminos: detRes.data?.grafo?.num_caminos,
+        // Programación lineal (transbordo)
+        estado_lp: detRes.data?.grafo?.estado_lp,
+        valor_objetivo: detRes.data?.grafo?.valor_objetivo,
+        num_variables: detRes.data?.grafo?.num_variables,
+        num_restricciones: detRes.data?.grafo?.num_restricciones,
+        num_rutas_oa: detRes.data?.grafo?.num_rutas_oa,
+        num_rutas_aa: detRes.data?.grafo?.num_rutas_aa,
+        num_rutas_ad: detRes.data?.grafo?.num_rutas_ad,
+        modelo_lp: detRes.data?.grafo?.modelo,
         validacion: detRes.data?.validacion || null,
       });
       setGrafo(gRes.data);

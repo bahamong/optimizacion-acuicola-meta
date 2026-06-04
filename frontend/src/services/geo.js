@@ -174,3 +174,74 @@ export const MUNICIPIOS = {
 }
 
 export const DEPARTAMENTOS = Object.keys(MUNICIPIOS)
+
+// ── Resolución de ubicación a departamento/municipio del proyecto ────────────
+
+/** Normaliza un texto: minúsculas, sin acentos ni prefijos como "Departamento de". */
+function _norm(s) {
+  return (s || '')
+    .toString()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')        // quita acentos
+    .replace(/\bdepartamento de\b/g, '')
+    .replace(/\bd\.?\s*c\.?\b/g, '')         // "D.C."
+    .replace(/[.,]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Hace coincidir un departamento y municipio crudos (devueltos por Nominatim)
+ * con las listas válidas del proyecto (Cundinamarca + Meta).
+ * Devuelve { departamento, municipio } ya validados, o null si está fuera de cobertura.
+ */
+export function resolverDeptoMunicipio(deptoRaw, muniRaw) {
+  const nd = _norm(deptoRaw)
+  const nm = _norm(muniRaw)
+
+  // 1) Departamento por nombre.
+  let departamento = DEPARTAMENTOS.find((dep) => _norm(dep) === nd)
+  if (!departamento) {
+    if (nd.includes('bogota') || nd.includes('cundinamarca') || nd.includes('distrito capital')) {
+      departamento = 'Cundinamarca'
+    } else if (nd.includes('meta')) {
+      departamento = 'Meta'
+    }
+  }
+  // 2) Si no se reconoció el departamento, inferirlo por el municipio.
+  if (!departamento) {
+    for (const dep of DEPARTAMENTOS) {
+      if (MUNICIPIOS[dep].some((m) => _norm(m) === nm)) { departamento = dep; break }
+    }
+  }
+  if (!departamento) return null
+
+  // 3) Municipio dentro del departamento.
+  let municipio = MUNICIPIOS[departamento].find((m) => _norm(m) === nm)
+  if (!municipio && (nd.includes('bogota') || nm.includes('bogota'))) {
+    municipio = 'Bogotá'
+  }
+  if (!municipio && nm) {
+    // Coincidencia parcial (p. ej. "villavicencio, meta" → "Villavicencio").
+    municipio = MUNICIPIOS[departamento].find(
+      (m) => _norm(m).includes(nm) || nm.includes(_norm(m)),
+    )
+  }
+  return { departamento, municipio: municipio || '' }
+}
+
+/**
+ * Geocodificación inversa + resolución al departamento/municipio del proyecto.
+ * Devuelve { departamento, municipio, etiqueta } o null.
+ */
+export async function ubicacionDeptoMunicipio(lat, lng) {
+  const info = await geocodificarInverso(lat, lng)
+  if (!info) return null
+  const resuelto = resolverDeptoMunicipio(info.departamento, info.municipio)
+  return {
+    etiqueta: info.etiqueta || '',
+    departamento: resuelto?.departamento || '',
+    municipio: resuelto?.municipio || '',
+  }
+}

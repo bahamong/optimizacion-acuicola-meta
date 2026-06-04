@@ -28,7 +28,8 @@ import {
 } from "react-icons/fa";
 import {
   buscarLugares,
-  geocodificarInverso,
+  ubicacionDeptoMunicipio,
+  resolverDeptoMunicipio,
   distanciaRuta,
   distanciaHaversine,
   obtenerUbicacionActual,
@@ -231,18 +232,24 @@ function FormNodo({ inicial, onGuardar, onCerrar, nodos }) {
   }
 
   function elegirSugerencia(s) {
-    setD((p) => ({
-      ...p,
-      direccion: s.etiqueta,
-      lat: s.lat,
-      lng: s.lng,
-      municipio: MUNICIPIOS[p.departamento]?.includes(s.municipio)
-        ? s.municipio
-        : p.municipio,
-      departamento: DEPARTAMENTOS.includes(s.departamento)
-        ? s.departamento
-        : p.departamento,
-    }));
+    const resuelto = resolverDeptoMunicipio(s.departamento, s.municipio);
+    setD((p) => {
+      const departamento = resuelto?.departamento || p.departamento;
+      let municipio = p.municipio;
+      if (resuelto?.municipio && MUNICIPIOS[departamento]?.includes(resuelto.municipio)) {
+        municipio = resuelto.municipio;
+      } else if (resuelto?.departamento && resuelto.departamento !== p.departamento) {
+        municipio = MUNICIPIOS[departamento]?.[0] || p.municipio;
+      }
+      return {
+        ...p,
+        direccion: s.etiqueta,
+        lat: s.lat,
+        lng: s.lng,
+        departamento,
+        municipio,
+      };
+    });
     setSugerencias([]);
     setMostrarSugs(false);
   }
@@ -253,18 +260,26 @@ function FormNodo({ inicial, onGuardar, onCerrar, nodos }) {
       lat: Math.round(lat * 1e6) / 1e6,
       lng: Math.round(lng * 1e6) / 1e6,
     }));
-    const info = await geocodificarInverso(lat, lng);
+    // Auto-completar departamento y municipio según la ubicación elegida.
+    const info = await ubicacionDeptoMunicipio(lat, lng);
     if (info) {
-      setD((p) => ({
-        ...p,
-        direccion: info.etiqueta || p.direccion,
-        municipio: MUNICIPIOS[p.departamento]?.includes(info.municipio)
-          ? info.municipio
-          : p.municipio,
-        departamento: DEPARTAMENTOS.includes(info.departamento)
-          ? info.departamento
-          : p.departamento,
-      }));
+      setD((p) => {
+        const departamento = info.departamento || p.departamento;
+        // Municipio válido dentro del departamento resuelto; si no se reconoce,
+        // se conserva el actual (o el primero del nuevo departamento).
+        let municipio = p.municipio;
+        if (info.municipio && MUNICIPIOS[departamento]?.includes(info.municipio)) {
+          municipio = info.municipio;
+        } else if (info.departamento && info.departamento !== p.departamento) {
+          municipio = MUNICIPIOS[departamento]?.[0] || p.municipio;
+        }
+        return {
+          ...p,
+          direccion: info.etiqueta || p.direccion,
+          departamento,
+          municipio,
+        };
+      });
     }
   }, []);
 
