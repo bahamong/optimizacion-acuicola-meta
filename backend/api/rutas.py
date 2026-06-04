@@ -34,6 +34,7 @@ from pydantic import BaseModel
 
 import config
 from algoritmos.optimizador_grafo import OptimizadorGrafo
+from algoritmos.optimizador_genetico import OptimizadorGenetico
 from algoritmos.validador import ValidadorRestricciones
 from database.supabase_client import (
     guardar_solucion,
@@ -478,21 +479,38 @@ def delete_arista(arista_id: int):
 # ── Optimización ──────────────────────────────────────────────────────────────
 
 @router.post("/api/optimizar")
-def optimizar():
+def optimizar(metodo: str = "grafo"):
     """
-    Ejecuta la optimización por grafos:
-      1. Flujo de Mínimo Costo (max_flow_min_cost)
-      2. Validación de restricciones
-      3. Cálculo de métricas finales
+    Ejecuta la optimización de la red por uno de dos métodos:
+      • metodo="grafo"    → Flujo de Mínimo Costo (max_flow_min_cost, exacto).
+      • metodo="genetico" → Algoritmo Genético (metaheurística).
+
+    En ambos casos:
+      1. Se asignan los flujos óptimos sobre la cadena Origen → Acopio → Destino.
+      2. Se validan las restricciones.
+      3. Se calculan las métricas finales.
+
+    El parámetro se recibe como query string (?metodo=genetico).
     """
     global resultado_optimizacion, ganancia_base, flujos_ultimos
+
+    metodo = (metodo or "grafo").lower()
+    if metodo not in ("grafo", "genetico"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Método de optimización inválido: '{metodo}'. Usa 'grafo' o 'genetico'.",
+        )
 
     grafo = _cargar_grafo()
 
     try:
-        logger.info("=== Iniciando optimización por grafos ===")
+        if metodo == "genetico":
+            logger.info("=== Iniciando optimización por Algoritmo Genético ===")
+            opt = OptimizadorGenetico(grafo)
+        else:
+            logger.info("=== Iniciando optimización por grafos (Flujo de Mínimo Costo) ===")
+            opt = OptimizadorGrafo(grafo)
 
-        opt = OptimizadorGrafo(grafo)
         resultado_grafo = opt.ejecutar()
 
         # Guardar los flujos para superponerlos al recargar el grafo en el mapa.
@@ -547,16 +565,22 @@ def optimizar():
 
         _guardar_solucion_bd(resultado_optimizacion)
 
-        logger.info(f"Optimización completada. Ganancia={ganancia:.2f}")
+        algoritmo = resultado_grafo.get(
+            "algoritmo", "Flujo de Mínimo Costo" if metodo == "grafo" else "Algoritmo Genético"
+        )
+        logger.info(f"Optimización completada ({algoritmo}). Ganancia={ganancia:.2f}")
 
         return _to_native({
             "estado": "éxito",
+            "metodo": metodo,
+            "algoritmo": algoritmo,
             "ganancia": round(ganancia, 2) if _es_finito(ganancia) else 0.0,
             "costo_total": resultado_grafo.get("costo_minimo", 0.0),
             "rutas_activas": resultado_grafo["num_rutas_activas"],
             "demanda_cumplida_pct": metricas["porcentaje_demanda_cumplida"],
             "restricciones_validas": validacion["valido"],
-            "mensaje": "Optimización por grafos completada.",
+            "generaciones_ejecutadas": resultado_grafo.get("generaciones_ejecutadas"),
+            "mensaje": f"Optimización completada ({algoritmo}).",
         })
 
     except Exception as e:

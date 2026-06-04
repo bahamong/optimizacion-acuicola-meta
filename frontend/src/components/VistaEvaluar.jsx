@@ -4,9 +4,16 @@ import {
   FaMapMarkedAlt, FaWater, FaBolt, FaSearch, FaPlay, FaChartBar,
   FaCheckCircle, FaExclamationTriangle, FaTimesCircle,
   FaFlask, FaRobot, FaPlus, FaTrash, FaGasPump, FaRoad, FaIndustry,
-  FaArrowUp, FaArrowDown,
+  FaArrowUp, FaArrowDown, FaDna,
 } from 'react-icons/fa'
+import { Line } from 'react-chartjs-2'
+import {
+  Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
+  Title, Tooltip, Legend, Filler,
+} from 'chart.js'
 import * as api from '../services/api.js'
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
 function SelectorNodo({ label, valor, onChange, nodos, excluir = '', requerido = false, tipos = ['origen', 'acopio', 'destino'], placeholder = '— Seleccionar nodo —' }) {
   const origenes = nodos.filter(n => n.tipo === 'origen')
@@ -199,35 +206,307 @@ function ResultadoFlujo({ resultado, onVerEnMapa }) {
   )
 }
 
+function DetalleViolaciones({ validacion, metodo }) {
+  const vDemanda  = validacion?.violaciones_demanda || []
+  const vOferta   = validacion?.violaciones_oferta || []
+  const vCapacidad = validacion?.violaciones_capacidad || []
+  const vBalance  = validacion?.violaciones_balance || []
+  const deficitTotal = validacion?.deficit_total ?? vDemanda.reduce((s, v) => s + (v.deficit || 0), 0)
+
+  return (
+    <div className="rounded-lg px-4 py-3 text-sm bg-amber-50 border border-amber-200 text-amber-800 flex flex-col gap-2">
+      <div className="flex items-center gap-2 font-semibold">
+        <FaExclamationTriangle /> Hay violaciones de restricciones
+      </div>
+
+      {vDemanda.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-amber-700">
+            Demanda no cubierta ({deficitTotal.toFixed(1)} ton en total):
+          </p>
+          <ul className="mt-1 ml-4 list-disc text-xs text-amber-700">
+            {vDemanda.slice(0, 6).map((v, i) => (
+              <li key={i}>
+                <strong>{v.nombre || v.nodo}</strong>: recibió {Number(v.recibido).toFixed(1)} de {Number(v.demanda).toFixed(1)} ton (faltan {Number(v.deficit).toFixed(1)} ton)
+              </li>
+            ))}
+            {vDemanda.length > 6 && <li>… y {vDemanda.length - 6} destino(s) más</li>}
+          </ul>
+        </div>
+      )}
+
+      {vOferta.length > 0 && (
+        <p className="text-xs text-amber-700">⚠ Oferta excedida en {vOferta.length} origen(es).</p>
+      )}
+      {vCapacidad.length > 0 && (
+        <p className="text-xs text-amber-700">⚠ Capacidad superada en {vCapacidad.length} ruta(s).</p>
+      )}
+      {vBalance.length > 0 && (
+        <p className="text-xs text-amber-700">⚠ Desbalance en {vBalance.length} acopio(s).</p>
+      )}
+
+      {vDemanda.length > 0 && vOferta.length === 0 && vCapacidad.length === 0 && vBalance.length === 0 && (
+        <p className="text-xs text-amber-600 border-t border-amber-200 pt-2">
+          {metodo === 'genetico'
+            ? 'El Algoritmo Genético es un método aproximado: puede dejar un déficit pequeño que el método exacto (Flujo de Mínimo Costo) sí llena. Si con ese método el déficit desaparece, la red sí puede cubrir la demanda. Si persiste en ambos, la oferta o las capacidades no alcanzan.'
+            : 'La oferta total o las capacidades de las rutas no alcanzan para cubrir toda la demanda solicitada.'}
+        </p>
+      )}
+    </div>
+  )
+}
+
+const METODOS_OPT = [
+  {
+    id: 'grafo',
+    label: 'Flujo de Mínimo Costo',
+    desc: 'Algoritmo de grafos exacto (max_flow_min_cost).',
+    Icono: FaBolt,
+  },
+  {
+    id: 'genetico',
+    label: 'Algoritmo Genético',
+    desc: 'Metaheurística evolutiva (selección, cruce y mutación).',
+    Icono: FaFlask,
+  },
+]
+
+function EvolucionGenetica({ resultados }) {
+  const historia = resultados?.historia_generaciones || []
+  const params = resultados?.parametros_ag
+  if (historia.length === 0) return null
+
+  const fmt = n => Number(n || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
+  const inicial = resultados.fitness_inicial ?? historia[0]?.mejor ?? 0
+  const final = resultados.fitness_final ?? historia[historia.length - 1]?.mejor ?? 0
+  const mejora = final - inicial
+  const genConverge = (() => {
+    // Primera generación cuyo mejor global ya iguala al fitness final.
+    const idx = historia.findIndex(h => Math.abs(h.mejor_global - final) < 1e-6)
+    return idx >= 0 ? historia[idx].generacion : historia[historia.length - 1].generacion
+  })()
+
+  const labels = historia.map(h => h.generacion)
+  const data = {
+    labels,
+    datasets: [
+      {
+        label: 'Mejor (élite)',
+        data: historia.map(h => h.mejor_global),
+        borderColor: '#16a34a',
+        backgroundColor: 'rgba(22,163,74,0.12)',
+        fill: true,
+        tension: 0.25,
+        pointRadius: 0,
+        borderWidth: 2,
+      },
+      {
+        label: 'Promedio población',
+        data: historia.map(h => h.promedio),
+        borderColor: '#6366f1',
+        backgroundColor: 'rgba(99,102,241,0.08)',
+        fill: false,
+        tension: 0.25,
+        pointRadius: 0,
+        borderWidth: 2,
+      },
+      {
+        label: 'Peor',
+        data: historia.map(h => h.peor),
+        borderColor: '#f59e0b',
+        borderDash: [4, 4],
+        fill: false,
+        tension: 0.25,
+        pointRadius: 0,
+        borderWidth: 1.5,
+      },
+    ],
+  }
+  const opciones = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { labels: { boxWidth: 12, font: { size: 11 } } },
+      tooltip: {
+        callbacks: {
+          title: items => `Generación ${items[0].label}`,
+          label: ctx => `${ctx.dataset.label}: $${fmt(ctx.parsed.y)}`,
+        },
+      },
+    },
+    scales: {
+      x: { title: { display: true, text: 'Generación', font: { size: 11 } }, ticks: { maxTicksLimit: 12, font: { size: 10 } } },
+      y: { title: { display: true, text: 'Ganancia (fitness)', font: { size: 11 } }, ticks: { font: { size: 10 }, callback: v => '$' + fmt(v) } },
+    },
+  }
+
+  // Muestreo del registro para no listar cientos de filas.
+  const paso = Math.max(1, Math.ceil(historia.length / 18))
+  const filas = historia.filter((_, i) => i % paso === 0)
+  if (filas[filas.length - 1] !== historia[historia.length - 1]) filas.push(historia[historia.length - 1])
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <FaDna className="text-emerald-600" />
+        <h4 className="text-sm font-bold text-slate-800">Proceso evolutivo del Algoritmo Genético</h4>
+      </div>
+
+      {/* Resumen del proceso */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs text-slate-500">Generaciones</p>
+          <p className="text-lg font-bold text-slate-800">{resultados.generaciones_ejecutadas ?? historia.length - 1}</p>
+          <p className="text-[0.7rem] text-slate-400">convergió en la gen. {genConverge}</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs text-slate-500">Fitness inicial</p>
+          <p className="text-lg font-bold text-slate-700">${fmt(inicial)}</p>
+          <p className="text-[0.7rem] text-slate-400">mejor de la gen. 0</p>
+        </div>
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+          <p className="text-xs text-slate-500">Fitness final</p>
+          <p className="text-lg font-bold text-emerald-700">${fmt(final)}</p>
+          <p className="text-[0.7rem] text-emerald-500">mejor solución hallada</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs text-slate-500">Mejora total</p>
+          <p className={`text-lg font-bold ${mejora >= 0 ? 'text-green-600' : 'text-red-600'}`}>{mejora >= 0 ? '+' : ''}${fmt(mejora)}</p>
+          <p className="text-[0.7rem] text-slate-400">{resultados.num_caminos ?? '—'} caminos O→A→D</p>
+        </div>
+      </div>
+
+      {/* Parámetros del AG */}
+      {params && (
+        <div className="flex flex-wrap gap-2 text-[0.7rem]">
+          {[
+            ['Población', params.tam_poblacion],
+            ['Gen. máx.', params.generaciones_max],
+            ['Prob. cruce', `${Math.round(params.prob_cruce * 100)}%`],
+            ['Prob. mutación', `${Math.round(params.prob_mutacion * 100)}%`],
+            ['Élite', params.num_elite],
+            ['Torneo', params.tam_torneo],
+          ].map(([k, v]) => (
+            <span key={k} className="px-2 py-1 rounded bg-slate-100 text-slate-600">
+              <strong className="text-slate-700">{k}:</strong> {v}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Curva de convergencia */}
+      <div>
+        <p className="text-xs font-semibold text-slate-500 mb-2">Curva de convergencia (ganancia por generación)</p>
+        <div className="h-64">
+          <Line data={data} options={opciones} />
+        </div>
+      </div>
+
+      {/* Registro de generaciones */}
+      <div className="overflow-x-auto">
+        <p className="text-xs font-semibold text-slate-500 mb-2">Registro del proceso (muestreado)</p>
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="bg-slate-100">
+              {['Gen.', 'Mejor', 'Promedio', 'Peor', 'Diversidad'].map(h => (
+                <th key={h} className="text-left px-3 py-2 text-slate-600 font-semibold">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((f, i) => {
+              const convergida = f.diversidad < 1e-6
+              return (
+                <tr key={i} className="border-t border-slate-100 hover:bg-slate-50">
+                  <td className="px-3 py-1.5 font-mono text-slate-500">{f.generacion}</td>
+                  <td className="px-3 py-1.5 text-right font-mono text-emerald-700">${fmt(f.mejor)}</td>
+                  <td className="px-3 py-1.5 text-right font-mono text-indigo-600">${fmt(f.promedio)}</td>
+                  <td className="px-3 py-1.5 text-right font-mono text-amber-600">${fmt(f.peor)}</td>
+                  <td className="px-3 py-1.5 text-right">
+                    <span className={`px-2 py-0.5 rounded text-[0.65rem] font-semibold ${convergida ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                      {convergida ? 'convergida' : `$${fmt(f.diversidad)}`}
+                    </span>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, cargando, msgCarga }) {
+  const [metodo, setMetodo] = useState('grafo')
+  const metodoSel = METODOS_OPT.find(m => m.id === metodo) || METODOS_OPT[0]
+
   return (
     <div className="flex flex-col gap-5">
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 flex items-start justify-between gap-4">
-        <div className="flex-1">
-          <h3 className="text-base font-bold text-slate-800 mb-2">Optimización por Grafos</h3>
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 flex flex-col gap-4">
+        <div>
+          <h3 className="text-base font-bold text-slate-800 mb-2">Optimización de la Red</h3>
           <p className="text-sm text-slate-600 leading-relaxed">
-            <strong>Flujo de Mínimo Costo:</strong> asigna los flujos x<sub>ij</sub> que satisfacen la demanda al menor costo de transporte posible, respetando la oferta, la demanda y la capacidad de cada arista.
+            Asigna los flujos x<sub>ij</sub> que maximizan la ganancia respetando la oferta, la demanda y la capacidad de cada arista, sobre la cadena Origen → Acopio → Destino. Elige el método de resolución:
           </p>
-          {!sincronizado && (
-            <p className="mt-2 text-sm text-amber-600 flex items-center gap-1">
-              <FaExclamationTriangle /> Aplica los datos al sistema primero (pestaña Datos de la Red).
-            </p>
-          )}
         </div>
+
+        {/* Selector de método */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {METODOS_OPT.map(m => {
+            const activo = metodo === m.id
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setMetodo(m.id)}
+                disabled={cargando}
+                className={`text-left flex items-start gap-3 rounded-xl border p-3 transition-all
+                  ${activo ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200' : 'border-slate-200 bg-white hover:border-slate-300'}
+                  ${cargando ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+              >
+                <m.Icono className={`mt-0.5 ${activo ? 'text-indigo-600' : 'text-slate-400'}`} />
+                <span className="flex flex-col">
+                  <span className={`text-sm font-bold ${activo ? 'text-indigo-700' : 'text-slate-700'}`}>{m.label}</span>
+                  <span className="text-xs text-slate-500">{m.desc}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        {!sincronizado && (
+          <p className="text-sm text-amber-600 flex items-center gap-1">
+            <FaExclamationTriangle /> Aplica los datos al sistema primero (pestaña Datos de la Red).
+          </p>
+        )}
+
         <button
-          className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all flex-shrink-0
+          className={`self-start flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all
             ${cargando || !sincronizado ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md'}`}
-          onClick={onOptimizar}
+          onClick={() => onOptimizar(metodo)}
           disabled={cargando || !sincronizado}
         >
           {cargando
             ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{msgCarga || 'Procesando...'}</>
-            : <><FaPlay /> Ejecutar optimización</>}
+            : <><FaPlay /> Ejecutar con {metodoSel.label}</>}
         </button>
       </div>
 
       {resultados && (
         <>
+          {(resultados.algoritmo || resultados.metodo) && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-indigo-50 border border-indigo-200 px-4 py-2 text-sm text-indigo-700">
+              {(resultados.metodo === 'genetico') ? <FaFlask /> : <FaBolt />}
+              <span>Resultado obtenido con <strong>{resultados.algoritmo || (resultados.metodo === 'genetico' ? 'Algoritmo Genético' : 'Flujo de Mínimo Costo')}</strong></span>
+              {resultados.metodo === 'genetico' && resultados.generaciones_ejecutadas != null && (
+                <span className="ml-auto text-xs font-normal text-indigo-500">
+                  Convergió en {resultados.generaciones_ejecutadas} generaciones
+                </span>
+              )}
+            </div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
               { label:'Ganancia total',   val:`$${Number(resultados.ganancia||0).toLocaleString('es-CO',{maximumFractionDigits:0})}`, color:'border-t-green-500'  },
@@ -243,10 +522,17 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
           </div>
 
           {resultados.restricciones_validas !== undefined && (
-            <div className={`flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium ${resultados.restricciones_validas ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-amber-50 border border-amber-200 text-amber-700'}`}>
-              {resultados.restricciones_validas ? <><FaCheckCircle /> Todas las restricciones se cumplen</> : <><FaExclamationTriangle /> Hay violaciones de restricciones</>}
-            </div>
+            resultados.restricciones_validas ? (
+              <div className="flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium bg-green-50 border border-green-200 text-green-700">
+                <FaCheckCircle /> Todas las restricciones se cumplen
+              </div>
+            ) : (
+              <DetalleViolaciones validacion={resultados.validacion} metodo={resultados.metodo} />
+            )
           )}
+
+          {/* Proceso evolutivo (solo Algoritmo Genético) */}
+          {resultados.metodo === 'genetico' && <EvolucionGenetica resultados={resultados} />}
 
           {/* Detalle de la lógica de acopios: calidad, merma y costo de operación */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
