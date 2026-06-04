@@ -91,6 +91,7 @@ def construir_red_acuicola() -> GrafoRed:
                     tasa_merma=merma,
                     tasa_calidad=n.get("tasa_calidad", 1.0),
                     costo_operacion=n.get("costo_operacion", 0.0),
+                    precio_venta=n.get("precio_venta", 250.0),
                 )
                 grafo.agregar_nodo(nodo)
         else:

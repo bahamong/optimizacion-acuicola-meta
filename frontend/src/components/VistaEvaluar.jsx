@@ -3,10 +3,12 @@ import { useState } from 'react'
 import {
   FaMapMarkedAlt, FaWater, FaBolt, FaSearch, FaPlay, FaChartBar,
   FaCheckCircle, FaExclamationTriangle, FaTimesCircle,
+  FaFlask, FaRobot, FaPlus, FaTrash, FaGasPump, FaRoad, FaIndustry,
+  FaArrowUp, FaArrowDown,
 } from 'react-icons/fa'
 import * as api from '../services/api.js'
 
-function SelectorNodo({ label, valor, onChange, nodos, excluir = '', requerido = false }) {
+function SelectorNodo({ label, valor, onChange, nodos, excluir = '', requerido = false, tipos = ['origen', 'acopio', 'destino'], placeholder = '— Seleccionar nodo —' }) {
   const origenes = nodos.filter(n => n.tipo === 'origen')
   const acopios  = nodos.filter(n => n.tipo === 'acopio')
   const destinos = nodos.filter(n => n.tipo === 'destino')
@@ -18,22 +20,22 @@ function SelectorNodo({ label, valor, onChange, nodos, excluir = '', requerido =
         onChange={e => onChange(e.target.value)}
         className="border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
       >
-        <option value="">— Seleccionar nodo —</option>
-        {origenes.length > 0 && (
+        <option value="">{placeholder}</option>
+        {tipos.includes('origen') && origenes.length > 0 && (
           <optgroup label="Estaciones de Origen">
             {origenes.filter(n => n.id !== excluir).map(n => (
               <option key={n.id} value={n.id}>{n.id} — {n.nombre}</option>
             ))}
           </optgroup>
         )}
-        {acopios.length > 0 && (
+        {tipos.includes('acopio') && acopios.length > 0 && (
           <optgroup label="Centros de Acopio">
             {acopios.filter(n => n.id !== excluir).map(n => (
               <option key={n.id} value={n.id}>{n.id} — {n.nombre}</option>
             ))}
           </optgroup>
         )}
-        {destinos.length > 0 && (
+        {tipos.includes('destino') && destinos.length > 0 && (
           <optgroup label="Supermercados">
             {destinos.filter(n => n.id !== excluir).map(n => (
               <option key={n.id} value={n.id}>{n.id} — {n.nombre}</option>
@@ -50,13 +52,32 @@ function ResultadoRuta({ resultado, nodos, onVerEnMapa }) {
   if (!resultado.existe) {
     return (
       <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 mt-4">
-        <FaTimesCircle /> No existe ruta entre los nodos seleccionados.
+        <FaTimesCircle /> {resultado.error || 'No existe una cadena Origen → Acopio → Destino hacia ese supermercado.'}
       </div>
     )
   }
   const getNombre = id => nodos.find(n => n.id === id)?.nombre || id
   return (
     <div className="mt-4 flex flex-col gap-4">
+      {(resultado.origen_optimo || resultado.acopio_intermedio) && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+          <span className="text-xs font-semibold text-indigo-500 uppercase tracking-wide">Cadena seleccionada</span>
+          <span className="text-slate-700">
+            <strong>Origen:</strong> {resultado.origen_optimo} — {getNombre(resultado.origen_optimo)}
+          </span>
+          <span className="text-slate-700">
+            <strong>Acopio:</strong> {resultado.acopio_intermedio} — {getNombre(resultado.acopio_intermedio)}
+          </span>
+          <span className="text-slate-700">
+            <strong>Destino:</strong> {resultado.destino} — {resultado.nombre_destino || getNombre(resultado.destino)}
+          </span>
+          {resultado.algoritmo && (
+            <span className="ml-auto px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 text-xs font-semibold">
+              {resultado.algoritmo}
+            </span>
+          )}
+        </div>
+      )}
       <div className="grid grid-cols-3 gap-3">
         {[
           { label:'Costo total', val:`$${resultado.costo_total?.toFixed(2)}/ton`, color:'text-green-600', bg:'bg-green-50', border:'border-green-200' },
@@ -120,10 +141,11 @@ function ResultadoRuta({ resultado, nodos, onVerEnMapa }) {
   )
 }
 
-function ResultadoFlujo({ resultado }) {
+function ResultadoFlujo({ resultado, onVerEnMapa }) {
   if (!resultado) return null
   const flujosTotales = resultado.detalle_flujos?.filter(f => f.flujo > 0) || []
   const cuello = resultado.cuello_botella
+  const clavesFlujo = flujosTotales.map(f => `${f.origen}→${f.destino}`)
   return (
     <div className="mt-4 flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3">
@@ -166,6 +188,12 @@ function ResultadoFlujo({ resultado }) {
             </tbody>
           </table>
         </div>
+      )}
+      {clavesFlujo.length > 0 && onVerEnMapa && (
+        <button className="self-start flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 py-2 rounded-lg transition-colors"
+          onClick={() => onVerEnMapa(clavesFlujo)}>
+          <FaMapMarkedAlt /> Ver en el mapa
+        </button>
       )}
     </div>
   )
@@ -220,6 +248,38 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
             </div>
           )}
 
+          {/* Detalle de la lógica de acopios: calidad, merma y costo de operación */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="border border-slate-200 rounded-xl p-4 bg-white">
+              <p className="text-xs text-slate-500 mb-1">Acopios activos</p>
+              <p className="text-lg font-bold text-slate-800">
+                {resultados.acopios_activos?.length ?? 0}
+              </p>
+              {resultados.acopios_activos?.length > 0 && (
+                <p className="text-[0.7rem] text-slate-400 mt-1 break-words">{resultados.acopios_activos.join(', ')}</p>
+              )}
+            </div>
+            <div className={`border rounded-xl p-4 bg-white ${resultados.acopios_penalizados?.length > 0 ? 'border-amber-300' : 'border-slate-200'}`}>
+              <p className="text-xs text-slate-500 mb-1">Penalizados por calidad</p>
+              <p className={`text-lg font-bold ${resultados.acopios_penalizados?.length > 0 ? 'text-amber-600' : 'text-slate-800'}`}>
+                {resultados.acopios_penalizados?.length ?? 0}
+              </p>
+              {resultados.acopios_penalizados?.length > 0 && (
+                <p className="text-[0.7rem] text-amber-500 mt-1 break-words">{resultados.acopios_penalizados.join(', ')} (calidad &lt; 50%)</p>
+              )}
+            </div>
+            <div className="border border-slate-200 rounded-xl p-4 bg-white">
+              <p className="text-xs text-slate-500 mb-1">Merma estimada</p>
+              <p className="text-lg font-bold text-rose-600">{Number(resultados.merma_total_estimada || 0).toFixed(2)} ton</p>
+              <p className="text-[0.7rem] text-slate-400 mt-1">pérdida en acopios</p>
+            </div>
+            <div className="border border-slate-200 rounded-xl p-4 bg-white">
+              <p className="text-xs text-slate-500 mb-1">Costo operación acopios</p>
+              <p className="text-lg font-bold text-slate-800">${Number(resultados.costo_operacion_acopios || 0).toLocaleString('es-CO',{maximumFractionDigits:0})}</p>
+              <p className="text-[0.7rem] text-slate-400 mt-1">descontado de la ganancia</p>
+            </div>
+          </div>
+
           <div className="grid md:grid-cols-2 gap-4">
             {resultados.flujos && (() => {
               const filas = Object.entries(resultados.flujos).filter(([,v])=>v>0.01).sort(([,a],[,b])=>b-a)
@@ -272,19 +332,269 @@ function PanelOptimizacion({ resultados, metricas, onOptimizar, sincronizado, ca
   )
 }
 
+function PanelEscenarios({ nodos, grafo, resultados, onVerFlujoEnMapa }) {
+  const acopios = nodos.filter(n => n.tipo === 'acopio')
+  const aristas = grafo?.aristas || []
+  const departamentos = [...new Set(nodos.map(n => n.departamento).filter(Boolean))]
+  const nombreNodo = id => nodos.find(n => n.id === id)?.nombre || id
+
+  const [nombre,    setNombre]    = useState('Escenario personalizado')
+  const [combActivo, setCombActivo] = useState(false)
+  const [combPct,   setCombPct]   = useState(15)
+  const [combDepto, setCombDepto] = useState('Meta')
+  const [vias,      setVias]      = useState([])   // [{id_origen, id_destino}]
+  const [fallos,    setFallos]    = useState([])   // [{id_acopio, tasa_calidad_nueva}]
+
+  const [resultado, setResultado] = useState(null)
+  const [error,     setError]     = useState(null)
+  const [loading,   setLoading]   = useState(false)
+  const [iaTexto,   setIaTexto]   = useState(null)
+  const [iaError,   setIaError]   = useState(null)
+  const [iaLoad,    setIaLoad]    = useState(false)
+
+  const sinOptimizar = !resultados
+
+  const agregarVia   = () => setVias(v => [...v, { id_origen: '', id_destino: '' }])
+  const quitarVia    = i => setVias(v => v.filter((_, j) => j !== i))
+  const setVia       = (i, key) => setVias(v => v.map((x, j) => {
+    if (j !== i) return x
+    const [id_origen, id_destino] = key.split('→')
+    return { id_origen, id_destino }
+  })
+  )
+  const agregarFallo = () => setFallos(f => [...f, { id_acopio: '', tasa_calidad_nueva: 0.2 }])
+  const quitarFallo  = i => setFallos(f => f.filter((_, j) => j !== i))
+  const setFallo     = (i, campo, val) => setFallos(f => f.map((x, j) => j === i ? { ...x, [campo]: val } : x))
+
+  const hayCondicion = combActivo || vias.some(v => v.id_origen) || fallos.some(f => f.id_acopio)
+
+  async function ejecutar() {
+    if (!hayCondicion) { setError('Activa al menos una condición (combustible, vía cerrada o fallo de calidad).'); return }
+    try {
+      setLoading(true); setError(null); setResultado(null); setIaTexto(null); setIaError(null)
+      const params = {
+        nombre,
+        combustible_activo: combActivo,
+        combustible_pct: Number(combPct),
+        combustible_departamento: combDepto,
+        vias_cerradas: vias.filter(v => v.id_origen && v.id_destino),
+        fallos_calidad: fallos.filter(f => f.id_acopio).map(f => ({ id_acopio: f.id_acopio, tasa_calidad_nueva: Number(f.tasa_calidad_nueva) })),
+      }
+      const res = await api.sensibilidadCombinado(params)
+      setResultado(res.data)
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Error al ejecutar el escenario.')
+    } finally { setLoading(false) }
+  }
+
+  async function analizarIA() {
+    if (!resultado) return
+    try {
+      setIaLoad(true); setIaError(null); setIaTexto(null)
+      const res = await api.analisisIaEscenario(resultado)
+      setIaTexto(res.data?.interpretacion || '')
+    } catch (e) {
+      setIaError(e.response?.data?.detail || 'Error al generar el análisis de IA.')
+    } finally { setIaLoad(false) }
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col gap-4">
+      <div>
+        <h2 className="text-base font-bold text-slate-800">Escenarios What-If — Análisis de Sensibilidad</h2>
+        <p className="text-sm text-slate-500 mt-1">Combina varias condiciones (combustible caro, vías cerradas y fallos de calidad), re-optimiza la red y mide el impacto en la ganancia.</p>
+      </div>
+
+      {sinOptimizar && (
+        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+          <FaExclamationTriangle /> Ejecuta primero la <strong>Optimización</strong> para que el impacto se compare contra la ganancia base real.
+        </div>
+      )}
+
+      <div className="flex flex-col gap-1">
+        <label className="text-xs font-semibold text-slate-600">Nombre del escenario</label>
+        <input value={nombre} onChange={e => setNombre(e.target.value)}
+          className="border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+      </div>
+
+      {/* Condición 1: combustible */}
+      <div className={`border rounded-lg p-3 flex flex-col gap-3 ${combActivo ? 'border-orange-300 bg-orange-50/40' : 'border-slate-200'}`}>
+        <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 cursor-pointer">
+          <input type="checkbox" checked={combActivo} onChange={e => setCombActivo(e.target.checked)} className="accent-orange-500" />
+          <FaGasPump className="text-orange-500" /> Aumento de combustible
+        </label>
+        {combActivo && (
+          <div className="flex flex-wrap items-end gap-3 pl-6">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-500">Aumento (%)</label>
+              <input type="number" min="0" step="1" value={combPct} onChange={e => setCombPct(e.target.value)}
+                className="border border-slate-300 rounded-md px-3 py-1.5 text-sm w-28" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-500">Departamento afectado</label>
+              <select value={combDepto} onChange={e => setCombDepto(e.target.value)}
+                className="border border-slate-300 rounded-md px-3 py-1.5 text-sm bg-white">
+                {!departamentos.includes(combDepto) && <option value={combDepto}>{combDepto}</option>}
+                {departamentos.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Condición 2: vías cerradas */}
+      <div className="border border-slate-200 rounded-lg p-3 flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-2 text-sm font-semibold text-slate-700"><FaRoad className="text-slate-500" /> Vías cerradas</span>
+          <button onClick={agregarVia} className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-semibold"><FaPlus /> Agregar</button>
+        </div>
+        {vias.length === 0 && <p className="text-xs text-slate-400 pl-6">Ninguna vía cerrada.</p>}
+        {vias.map((v, i) => (
+          <div key={i} className="flex items-center gap-2 pl-6">
+            <select value={v.id_origen && v.id_destino ? `${v.id_origen}→${v.id_destino}` : ''} onChange={e => setVia(i, e.target.value)}
+              className="flex-1 border border-slate-300 rounded-md px-2 py-1.5 text-sm bg-white">
+              <option value="">— Seleccionar ruta —</option>
+              {aristas.map(a => {
+                const k = `${a.origen}→${a.destino}`
+                return <option key={k} value={k}>{a.origen} → {a.destino} ({nombreNodo(a.origen)} → {nombreNodo(a.destino)})</option>
+              })}
+            </select>
+            <button onClick={() => quitarVia(i)} className="text-red-500 hover:text-red-700 p-1"><FaTrash /></button>
+          </div>
+        ))}
+      </div>
+
+      {/* Condición 3: fallos de calidad */}
+      <div className="border border-slate-200 rounded-lg p-3 flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-2 text-sm font-semibold text-slate-700"><FaIndustry className="text-slate-500" /> Fallos de calidad en acopios</span>
+          <button onClick={agregarFallo} className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-semibold"><FaPlus /> Agregar</button>
+        </div>
+        {fallos.length === 0 && <p className="text-xs text-slate-400 pl-6">Ningún fallo de calidad.</p>}
+        {fallos.map((f, i) => (
+          <div key={i} className="flex items-center gap-2 pl-6">
+            <select value={f.id_acopio} onChange={e => setFallo(i, 'id_acopio', e.target.value)}
+              className="flex-1 border border-slate-300 rounded-md px-2 py-1.5 text-sm bg-white">
+              <option value="">— Seleccionar acopio —</option>
+              {acopios.map(a => <option key={a.id} value={a.id}>{a.id} — {a.nombre}</option>)}
+            </select>
+            <div className="flex flex-col items-center">
+              <span className="text-[0.65rem] text-slate-500">calidad → {Math.round(Number(f.tasa_calidad_nueva) * 100)}%</span>
+              <input type="range" min="0" max="1" step="0.05" value={f.tasa_calidad_nueva}
+                onChange={e => setFallo(i, 'tasa_calidad_nueva', e.target.value)} className="w-28 accent-rose-500" />
+            </div>
+            <button onClick={() => quitarFallo(i)} className="text-red-500 hover:text-red-700 p-1"><FaTrash /></button>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={ejecutar} disabled={loading || !hayCondicion}
+        className={`self-start flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors
+          ${loading || !hayCondicion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}>
+        {loading ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Ejecutando...</> : <><FaFlask /> Ejecutar escenario</>}
+      </button>
+
+      {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</div>}
+
+      {resultado && <ResultadoEscenario resultado={resultado} onAnalizarIA={analizarIA} iaTexto={iaTexto} iaError={iaError} iaLoad={iaLoad}
+        onVerFlujoEnMapa={onVerFlujoEnMapa} />}
+    </div>
+  )
+}
+
+function ResultadoEscenario({ resultado, onAnalizarIA, iaTexto, iaError, iaLoad, onVerFlujoEnMapa }) {
+  const neg = resultado.evaluacion === 'NEGATIVO'
+  const rutasOpt = resultado.resultado_optimizacion?.grafo?.num_rutas_activas
+  const flujosOpt = resultado.resultado_optimizacion?.grafo?.flujos || {}
+
+  return (
+    <div className="mt-1 flex flex-col gap-4">
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <span className="text-xs text-slate-500">Ganancia base</span>
+          <p className="text-base font-bold text-slate-700">${Number(resultado.ganancia_base).toLocaleString('es-CO',{maximumFractionDigits:0})}</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <span className="text-xs text-slate-500">Ganancia escenario</span>
+          <p className="text-base font-bold text-slate-700">${Number(resultado.ganancia_escenario).toLocaleString('es-CO',{maximumFractionDigits:0})}</p>
+        </div>
+        <div className={`rounded-lg border p-3 ${neg ? 'border-red-200 bg-red-50' : 'border-green-200 bg-green-50'}`}>
+          <span className="text-xs text-slate-500">Impacto</span>
+          <p className={`text-base font-bold flex items-center gap-1 ${neg ? 'text-red-600' : 'text-green-600'}`}>
+            {neg ? <FaArrowDown /> : <FaArrowUp />}${Math.abs(Number(resultado.impacto_absoluto)).toLocaleString('es-CO',{maximumFractionDigits:0})}
+          </p>
+        </div>
+        <div className={`rounded-lg border p-3 ${neg ? 'border-red-200 bg-red-50' : 'border-green-200 bg-green-50'}`}>
+          <span className="text-xs text-slate-500">Variación</span>
+          <p className={`text-base font-bold ${neg ? 'text-red-600' : 'text-green-600'}`}>{Number(resultado.impacto_porcentual).toFixed(2)}%</p>
+        </div>
+      </div>
+
+      <div className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold ${neg ? 'bg-red-50 border border-red-200 text-red-700' : 'bg-green-50 border border-green-200 text-green-700'}`}>
+        {neg ? <FaArrowDown /> : <FaArrowUp />} Evaluación: {resultado.evaluacion}
+        {rutasOpt != null && <span className="ml-auto text-xs font-normal text-slate-500">{rutasOpt} rutas activas tras re-optimizar</span>}
+      </div>
+
+      {/* Cambios aplicados */}
+      {resultado.cambios_aplicados?.length > 0 && (
+        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+          <p className="text-xs font-semibold text-slate-500 mb-2">Condiciones aplicadas</p>
+          <div className="flex flex-col gap-2">
+            {resultado.cambios_aplicados.map((c, i) => (
+              <div key={i} className="text-xs text-slate-700">
+                {c.tipo === 'combustible' && (
+                  <span><FaGasPump className="inline text-orange-500 mr-1" /><strong>Combustible:</strong> {c.descripcion} — {c.rutas_afectadas?.length || 0} rutas afectadas</span>
+                )}
+                {c.tipo === 'via_cerrada' && (
+                  <span><FaRoad className="inline text-slate-500 mr-1" /><strong>Vía cerrada:</strong> {c.arista?.ruta} (cap. {c.arista?.capacidad} ton)</span>
+                )}
+                {c.tipo === 'fallo_calidad' && (
+                  <span><FaIndustry className="inline text-rose-500 mr-1" /><strong>Calidad:</strong> {c.acopio} {Math.round((c.calidad_anterior ?? 0)*100)}% → {Math.round((c.calidad_nueva ?? 0)*100)}% (merma {Math.round((c.merma_nueva ?? 0)*100)}%)</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        {Object.keys(flujosOpt).length > 0 && onVerFlujoEnMapa && (
+          <button onClick={() => onVerFlujoEnMapa(Object.keys(flujosOpt))}
+            className="flex items-center gap-2 bg-slate-700 hover:bg-slate-800 text-white text-sm px-4 py-2 rounded-lg transition-colors">
+            <FaMapMarkedAlt /> Ver flujos resultantes en el mapa
+          </button>
+        )}
+        <button onClick={onAnalizarIA} disabled={iaLoad}
+          className={`flex items-center gap-2 text-sm px-4 py-2 rounded-lg transition-colors ${iaLoad ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-violet-600 hover:bg-violet-700 text-white'}`}>
+          {iaLoad ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Analizando...</> : <><FaRobot /> Analizar con IA</>}
+        </button>
+      </div>
+
+      {iaError && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{iaError}</div>}
+      {iaTexto && (
+        <div className="bg-violet-50 border border-violet-200 rounded-lg p-4">
+          <p className="flex items-center gap-2 text-xs font-semibold text-violet-600 mb-2 uppercase tracking-wide"><FaRobot /> Análisis del consultor IA</p>
+          <p className="text-sm text-slate-700 whitespace-pre-line leading-relaxed">{iaTexto}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 const SUB_ANALISIS = [
   { id: 'ruta',      Icono: FaMapMarkedAlt, label: 'Ruta Óptima',  desc: 'Dijkstra — menor costo' },
   { id: 'flujo',     Icono: FaWater,        label: 'Flujo Máximo', desc: 'Ford-Fulkerson — cuello de botella' },
   { id: 'optimizar', Icono: FaBolt,         label: 'Optimización', desc: 'Flujo de mínimo costo — red completa' },
+  { id: 'escenarios',Icono: FaFlask,        label: 'Escenarios',   desc: 'What-If — análisis de sensibilidad' },
 ]
 
 export default function VistaEvaluar({
   nodos, grafo, metricas, resultados,
-  onOptimizar, onVerEnMapa,
+  onOptimizar, onVerEnMapa, onVerFlujoEnMapa,
   sincronizado, cargando, msgCarga,
 }) {
   const [subVista,      setSubVista]      = useState('ruta')
-  const [rutaOrigen,    setRutaOrigen]    = useState('')
   const [rutaDestino,   setRutaDestino]   = useState('')
   const [resultRuta,    setResultRuta]    = useState(null)
   const [errorRuta,     setErrorRuta]     = useState(null)
@@ -296,11 +606,10 @@ export default function VistaEvaluar({
   const [loadFlujo,     setLoadFlujo]     = useState(false)
 
   async function calcularRuta() {
-    if (!rutaOrigen || !rutaDestino) return
-    if (rutaOrigen === rutaDestino) { setErrorRuta('Origen y destino deben ser distintos.'); return }
+    if (!rutaDestino) return
     try {
       setLoadRuta(true); setErrorRuta(null); setResultRuta(null)
-      const res = await api.rutaOptima(rutaOrigen, rutaDestino)
+      const res = await api.rutaOptima(rutaDestino)
       setResultRuta(res.data)
     } catch (e) {
       setErrorRuta(e.response?.data?.detail || 'Error al calcular la ruta.')
@@ -349,18 +658,24 @@ export default function VistaEvaluar({
       {subVista === 'ruta' && (
         <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col gap-4">
           <div>
-            <h2 className="text-base font-bold text-slate-800">Ruta Óptima — Dijkstra</h2>
-            <p className="text-sm text-slate-500 mt-1">Calcula el camino de menor costo de transporte ($/ton) entre dos nodos.</p>
+            <h2 className="text-base font-bold text-slate-800">Cadena Óptima — Origen → Acopio → Destino</h2>
+            <p className="text-sm text-slate-500 mt-1">Elige un supermercado destino: el sistema encuentra automáticamente el mejor origen y centro de acopio intermedio (menor costo de transporte $/ton).</p>
           </div>
           <div className="flex flex-wrap items-end gap-3">
-            <SelectorNodo label="Nodo de origen" valor={rutaOrigen} onChange={v => { setRutaOrigen(v); setResultRuta(null) }} nodos={nodos} excluir={rutaDestino} requerido />
-            <span className="text-slate-400 text-lg pb-2">→</span>
-            <SelectorNodo label="Nodo de destino" valor={rutaDestino} onChange={v => { setRutaDestino(v); setResultRuta(null) }} nodos={nodos} excluir={rutaOrigen} requerido />
+            <SelectorNodo
+              label="Supermercado destino"
+              valor={rutaDestino}
+              onChange={v => { setRutaDestino(v); setResultRuta(null) }}
+              nodos={nodos}
+              tipos={['destino']}
+              placeholder="— Seleccionar destino —"
+              requerido
+            />
             <button
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors
-                ${!rutaOrigen || !rutaDestino || loadRuta || sinDatos ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
+                ${!rutaDestino || loadRuta || sinDatos ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
               onClick={calcularRuta}
-              disabled={!rutaOrigen || !rutaDestino || loadRuta || sinDatos}
+              disabled={!rutaDestino || loadRuta || sinDatos}
             >
               {loadRuta ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Calculando...</> : <><FaSearch /> Calcular</>}
             </button>
@@ -391,7 +706,7 @@ export default function VistaEvaluar({
             </button>
           </div>
           {errorFlujo && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{errorFlujo}</div>}
-          <ResultadoFlujo resultado={resultFlujo} />
+          <ResultadoFlujo resultado={resultFlujo} onVerEnMapa={onVerFlujoEnMapa} />
         </div>
       )}
 
@@ -401,6 +716,14 @@ export default function VistaEvaluar({
           resultados={resultados} metricas={metricas}
           onOptimizar={onOptimizar} sincronizado={sincronizado}
           cargando={cargando} msgCarga={msgCarga}
+        />
+      )}
+
+      {/* Escenarios What-If */}
+      {subVista === 'escenarios' && (
+        <PanelEscenarios
+          nodos={nodos} grafo={grafo} resultados={resultados}
+          onVerFlujoEnMapa={onVerFlujoEnMapa}
         />
       )}
     </div>

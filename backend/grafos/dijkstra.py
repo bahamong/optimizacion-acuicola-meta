@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Tuple
 import networkx as nx
 
 from models.grafo import GrafoRed
+from models.nodo import TipoNodo
 
 
 class DijkstraCalculator:
@@ -41,10 +42,136 @@ class DijkstraCalculator:
         except nx.NodeNotFound:
             return {}
 
+    def _hay_costos_negativos(self) -> bool:
+        """Retorna True si alguna arista del grafo tiene peso negativo."""
+        return any(
+            data.get("weight", 0) < 0
+            for _, _, data in self.grafo._nx.edges(data=True)
+        )
+
+    def mejor_cadena_hacia_destino(self, id_destino: str) -> dict:
+        """
+        Encuentra la cadena óptima O→A→D para el destino dado.
+
+        El usuario solo provee el ID del supermercado destino; el sistema
+        elige automáticamente el mejor origen y el mejor acopio intermedio
+        minimizando el costo total de la cadena completa.
+
+        Algoritmo:
+          1. Verificar que id_destino sea un nodo tipo DESTINO.
+          2. Encontrar los acopios con arista directa hacia id_destino.
+          3. Para cada acopio candidato y cada origen, calcular
+             costo(origen → acopio) + costo(acopio → destino).
+          4. Retornar la cadena de menor costo total.
+        """
+        nodo_destino = self.grafo.obtener_nodo(id_destino)
+        if not nodo_destino:
+            return {"existe": False, "error": f"Nodo '{id_destino}' no existe", "ruta": []}
+        if nodo_destino.tipo != TipoNodo.DESTINO:
+            return {
+                "existe": False,
+                "error": f"'{id_destino}' no es un destino (es {nodo_destino.tipo.value})",
+                "ruta": [],
+            }
+
+        origenes = self.grafo.obtener_nodos_por_tipo(TipoNodo.ORIGEN)
+
+        # Acopios que tienen arista directa al destino.
+        acopios_conectados_al_destino = [
+            uid
+            for uid in self.grafo.vecinos_entrada(id_destino)
+            if self.grafo.obtener_nodo(uid)
+            and self.grafo.obtener_nodo(uid).tipo == TipoNodo.ACOPIO
+        ]
+
+        if not acopios_conectados_al_destino:
+            return {
+                "existe": False,
+                "error": f"Ningún acopio conecta directamente con '{id_destino}'",
+                "ruta": [],
+            }
+
+        usa_bellman = self._hay_costos_negativos()
+        mejor_costo = float("inf")
+        mejor_ruta = None
+        mejor_acopio = None
+        mejor_origen = None
+
+        for id_acopio in acopios_conectados_al_destino:
+            arista_ad = self.grafo.obtener_arista(id_acopio, id_destino)
+            costo_ultima_milla = arista_ad.costo_transporte if arista_ad else float("inf")
+            if costo_ultima_milla == float("inf"):
+                continue
+
+            for origen in origenes:
+                try:
+                    if usa_bellman:
+                        path_oa = nx.bellman_ford_path(
+                            self.grafo._nx, origen.id, id_acopio, weight="weight")
+                        costo_oa = nx.bellman_ford_path_length(
+                            self.grafo._nx, origen.id, id_acopio, weight="weight")
+                    else:
+                        path_oa = nx.dijkstra_path(
+                            self.grafo._nx, origen.id, id_acopio, weight="weight")
+                        costo_oa = nx.dijkstra_path_length(
+                            self.grafo._nx, origen.id, id_acopio, weight="weight")
+
+                    costo_total = costo_oa + costo_ultima_milla
+                    if costo_total < mejor_costo:
+                        mejor_costo = costo_total
+                        mejor_ruta = path_oa + [id_destino]
+                        mejor_acopio = id_acopio
+                        mejor_origen = origen.id
+                except (nx.NetworkXNoPath, nx.NodeNotFound, nx.NetworkXUnbounded):
+                    continue
+
+        if mejor_ruta is None:
+            return {
+                "existe": False,
+                "error": f"No se encontró cadena O→A→D válida hacia '{id_destino}'",
+                "ruta": [],
+            }
+
+        # Construir detalle tramo por tramo.
+        detalle = []
+        for i in range(len(mejor_ruta) - 1):
+            u, v = mejor_ruta[i], mejor_ruta[i + 1]
+            arista = self.grafo.obtener_arista(u, v)
+            nodo_u = self.grafo.obtener_nodo(u)
+            nodo_v = self.grafo.obtener_nodo(v)
+            detalle.append({
+                "de": u,
+                "nombre_de": nodo_u.nombre if nodo_u else u,
+                "tipo_de": nodo_u.tipo.value if nodo_u else "?",
+                "a": v,
+                "nombre_a": nodo_v.nombre if nodo_v else v,
+                "tipo_a": nodo_v.tipo.value if nodo_v else "?",
+                "costo_unitario": round(arista.costo_transporte, 4) if arista else 0.0,
+                "distancia_km": round(arista.distancia, 2) if arista else 0.0,
+                "capacidad": arista.capacidad if arista else 0.0,
+                "estado": arista.estado if arista else "activa",
+            })
+
+        return {
+            "existe": True,
+            "destino": id_destino,
+            "nombre_destino": nodo_destino.nombre,
+            "origen_optimo": mejor_origen,
+            "acopio_intermedio": mejor_acopio,
+            "ruta": mejor_ruta,
+            "costo_total": round(mejor_costo, 4),
+            "saltos": len(mejor_ruta) - 1,
+            "algoritmo": "bellman_ford" if usa_bellman else "dijkstra",
+            "cadena": f"{mejor_origen} → {mejor_acopio} → {id_destino}",
+            "detalle": detalle,
+        }
+
     def ruta_con_detalle(self, origen: str, destino: str) -> dict:
         """
-        Retorna la ruta óptima con información detallada por cada tramo.
-        Útil para respuestas de la API.
+        [_legacy] Retorna la ruta óptima entre un origen y un destino
+        explícitos, con detalle por tramo. Se mantiene para la ruta
+        representativa post-optimización y el modo legacy de la API.
+        El modo nuevo de la API usa mejor_cadena_hacia_destino().
         """
         path, costo_total = self.ruta_minimo_costo(origen, destino)
         if path is None:

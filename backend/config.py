@@ -29,6 +29,15 @@ PENALIZACION_INCUMPLIMIENTO = float(os.getenv("PENALIZACION_INCUMPLIMIENTO", "10
 PENALIZACION_CALIDAD = float(os.getenv("PENALIZACION_CALIDAD", "500.0"))
 PENALIZACION_CAPACIDAD = float(os.getenv("PENALIZACION_CAPACIDAD", "300.0"))
 
+# Umbral de calidad: por debajo de este valor un acopio se considera de baja
+# calidad y sus rutas de salida se penalizan en el optimizador.
+# Debe coincidir con ValidadorRestricciones.UMBRAL_CALIDAD.
+UMBRAL_CALIDAD = float(os.getenv("UMBRAL_CALIDAD", "0.5"))
+
 # Negocio
 PRECIO_VENTA_TON = float(os.getenv("PRECIO_VENTA_TON", "250.0"))
 COSTO_ALMACENAMIENTO = float(os.getenv("COSTO_ALMACENAMIENTO", "2.0"))
+
+# Google AI (Gemini) — análisis narrativo de escenarios What-If
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GOOGLE_AI_MODEL = os.getenv("GOOGLE_AI_MODEL", "gemini-1.5-flash")

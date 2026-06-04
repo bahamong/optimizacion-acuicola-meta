@@ -22,6 +22,7 @@ const toNodoPayload = (n) => ({
   tasa_merma: Number(n.tasa_merma) || 0,
   tasa_calidad: Number(n.tasa_calidad ?? 1),
   costo_operacion: Number(n.costo_operacion) || 0,
+  precio_venta: Number(n.precio_venta ?? 250),
 });
 
 // Mapea una arista del frontend (origen/destino/costo) al payload de la API.
@@ -38,6 +39,7 @@ const toAristaPayload = (a) => ({
 export default function App() {
   const [vista, setVista] = useState("datos");
   const [rutaDestacada, setRutaDestacada] = useState([]);
+  const [aristasDestacadas, setAristasDestacadas] = useState([]);
   const [nodos, setNodos] = useState([]);
   const [aristas, setAristas] = useState([]);
   const [metricas, setMetricas] = useState(null);
@@ -193,6 +195,10 @@ export default function App() {
         ...r1.data,
         flujos: detRes.data?.grafo?.flujos || {},
         rutas_activas_detalle: detRes.data?.grafo?.rutas_activas || [],
+        acopios_penalizados: detRes.data?.grafo?.acopios_penalizados || [],
+        acopios_activos: detRes.data?.grafo?.acopios_activos || [],
+        merma_total_estimada: detRes.data?.grafo?.merma_total_estimada ?? 0,
+        costo_operacion_acopios: detRes.data?.grafo?.costo_operacion_acopios ?? 0,
       });
       setGrafo(gRes.data);
       setMetricas(mRes.data);
@@ -235,6 +241,8 @@ export default function App() {
             grafo={grafo}
             metricas={metricas}
             rutaDestacada={rutaDestacada}
+            aristasDestacadas={aristasDestacadas}
+            onLimpiarFoco={() => { setRutaDestacada([]); setAristasDestacadas([]); }}
             onNodoEdit={editarNodoDesdeMapa}
             onAristaEdit={editarAristaDesdeMapa}
           />
@@ -248,7 +256,8 @@ export default function App() {
             metricas={metricas}
             resultados={resultados}
             onOptimizar={ejecutarOptimizacion}
-            onVerEnMapa={(ruta) => setRutaDestacada(ruta)}
+            onVerEnMapa={(ruta) => { setRutaDestacada(ruta); setAristasDestacadas([]); }}
+            onVerFlujoEnMapa={(claves) => { setAristasDestacadas(claves); setRutaDestacada([]); }}
             sincronizado={true}
             cargando={cargando}
             msgCarga={msgCarga}

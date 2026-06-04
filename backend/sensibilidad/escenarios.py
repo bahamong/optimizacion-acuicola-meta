@@ -22,7 +22,8 @@ Cada escenario retorna un dict con:
   - descripción de cambios
 """
 
-from typing import Optional, Tuple
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
 
 from algoritmos.optimizador_grafo import OptimizadorGrafo
 from algoritmos.validador import ValidadorRestricciones
@@ -31,6 +32,26 @@ from models.nodo import TipoNodo
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class ParametrosEscenario:
+    """Parámetros de un escenario What-If combinable (varias condiciones a la vez)."""
+
+    nombre: str = "Escenario personalizado"
+
+    # Condición 1: aumento de combustible.
+    combustible_activo: bool = False
+    combustible_pct: float = 15.0           # % de aumento
+    combustible_departamento: str = "Meta"  # filtro por departamento/municipio
+
+    # Condición 2: vías cerradas (puede haber varias).
+    # Cada elemento: {"id_origen": "A2", "id_destino": "A5"}
+    vias_cerradas: List[dict] = field(default_factory=list)
+
+    # Condición 3: fallos de calidad (puede haber varios acopios).
+    # Cada elemento: {"id_acopio": "A3", "tasa_calidad_nueva": 0.2}
+    fallos_calidad: List[dict] = field(default_factory=list)
 
 
 def _optimizar_grafo(grafo: GrafoRed) -> Tuple[float, dict]:
@@ -245,6 +266,114 @@ class AnalizadorSensibilidad:
                     "merma_nueva": nodo_acopio.tasa_merma,
                 },
             ),
+            "resultado_optimizacion": resultado,
+        }
+
+    # ── Escenario combinado (varias condiciones simultáneas) ──────────────────
+
+    def ejecutar_escenario_combinado(self, params: ParametrosEscenario) -> dict:
+        """
+        Aplica todas las condiciones del escenario sobre la misma copia del
+        grafo base, re-optimiza, y retorna comparativa + estado del grafo
+        ANTES (con problemas) y DESPUÉS (optimizado) del enrutamiento.
+        """
+        grafo_mod = self.grafo_base.copia()
+        cambios_aplicados = []
+
+        # 1. Aumento de combustible.
+        if params.combustible_activo:
+            factor = 1.0 + params.combustible_pct / 100.0
+            objetivo = params.combustible_departamento.lower()
+            rutas_afectadas = []
+            for (u, v), arista in grafo_mod.aristas.items():
+                nodo_u = grafo_mod.obtener_nodo(u)
+                nodo_v = grafo_mod.obtener_nodo(v)
+                en_zona = any(
+                    objetivo in ((n.departamento or "").lower() + " " + (n.municipio or "").lower())
+                    for n in [nodo_u, nodo_v]
+                    if n
+                )
+                if en_zona:
+                    costo_anterior = arista.costo_transporte
+                    arista.costo_transporte = round(costo_anterior * factor, 4)
+                    grafo_mod._nx[u][v]["weight"] = arista.costo_total_unitario
+                    rutas_afectadas.append({
+                        "ruta": f"{u}→{v}",
+                        "costo_anterior": costo_anterior,
+                        "costo_nuevo": arista.costo_transporte,
+                    })
+            cambios_aplicados.append({
+                "tipo": "combustible",
+                "descripcion": f"+{params.combustible_pct}% en {params.combustible_departamento}",
+                "rutas_afectadas": rutas_afectadas,
+            })
+
+        # 2. Cerrar vías.
+        for via in params.vias_cerradas:
+            id_o, id_d = via.get("id_origen"), via.get("id_destino")
+            clave = (id_o, id_d)
+            if clave in grafo_mod.aristas:
+                arista = grafo_mod.aristas[clave]
+                info = {
+                    "ruta": f"{id_o}→{id_d}",
+                    "capacidad": arista.capacidad,
+                    "costo": arista.costo_transporte,
+                }
+                arista.estado = "bloqueada"
+                del grafo_mod.aristas[clave]
+                if grafo_mod._nx.has_edge(id_o, id_d):
+                    grafo_mod._nx.remove_edge(id_o, id_d)
+                cambios_aplicados.append({"tipo": "via_cerrada", "arista": info})
+
+        # 3. Fallos de calidad.
+        for fallo in params.fallos_calidad:
+            id_acopio = fallo.get("id_acopio")
+            nueva_calidad = fallo.get("tasa_calidad_nueva", 0.2)
+            nodo_acopio = grafo_mod.obtener_nodo(id_acopio)
+            if nodo_acopio and nodo_acopio.tipo == TipoNodo.ACOPIO:
+                calidad_anterior = nodo_acopio.tasa_calidad
+                merma_anterior = nodo_acopio.tasa_merma
+                nodo_acopio.tasa_calidad = nueva_calidad
+                nodo_acopio.tasa_merma = min(max(merma_anterior, 1.0 - nueva_calidad), 0.5)
+                cambios_aplicados.append({
+                    "tipo": "fallo_calidad",
+                    "acopio": id_acopio,
+                    "calidad_anterior": calidad_anterior,
+                    "calidad_nueva": nueva_calidad,
+                    "merma_nueva": nodo_acopio.tasa_merma,
+                })
+
+        # Estado del grafo ANTES de optimizar (con las perturbaciones aplicadas).
+        grafo_con_problemas = grafo_mod.to_dict()
+
+        # Re-optimizar con el grafo perturbado.
+        ganancia_esc, resultado = _optimizar_grafo(grafo_mod)
+
+        # Estado del grafo DESPUÉS de optimizar (con los flujos asignados).
+        grafo_optimizado = grafo_mod.to_dict()
+
+        impacto_abs = ganancia_esc - self.ganancia_base
+        impacto_pct = (
+            (impacto_abs / abs(self.ganancia_base) * 100)
+            if self.ganancia_base != 0
+            else 0.0
+        )
+
+        logger.info(
+            f"Escenario combinado '{params.nombre}': {len(cambios_aplicados)} condiciones, "
+            f"impacto={impacto_abs:.2f} ({impacto_pct:.2f}%)"
+        )
+
+        return {
+            "nombre": params.nombre,
+            "ganancia_base": round(self.ganancia_base, 2),
+            "ganancia_escenario": round(ganancia_esc, 2),
+            "impacto_absoluto": round(impacto_abs, 2),
+            "impacto_porcentual": round(impacto_pct, 2),
+            "evaluacion": "NEGATIVO" if impacto_abs < 0 else "POSITIVO",
+            "cambios_aplicados": cambios_aplicados,
+            "grafo_con_problemas": grafo_con_problemas,
+            "grafo_optimizado": grafo_optimizado,
             "resultado_optimizacion": resultado,
         }
 

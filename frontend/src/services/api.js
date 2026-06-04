@@ -29,7 +29,8 @@ export const ejecutarOptimizacion = () => api.post('/api/optimizar')
 export const obtenerResultados    = () => api.get('/api/resultados')
 
 // ── Algoritmos de grafos ──────────────────────────────────────────────────────
-export const rutaOptima  = (origen, destino)  => api.get('/api/ruta_optima',  { params: { origen, destino } })
+// Solo se indica el destino: el backend halla la mejor cadena Origen → Acopio → Destino.
+export const rutaOptima  = (destino)  => api.get('/api/ruta_optima',  { params: { destino } })
 export const flujoMaximo = (fuente, sumidero) => api.get('/api/flujo_maximo', { params: { fuente, sumidero } })
 
 // ── Análisis de sensibilidad ──────────────────────────────────────────────────
@@ -43,6 +44,14 @@ export const sensibilidadCalidad = (id_acopio, tasa_calidad_nueva) =>
   api.post('/api/sensibilidad/calidad', { id_acopio, tasa_calidad_nueva })
 
 export const sensibilidadTodos = () => api.post('/api/sensibilidad/todos')
+
+// Escenario combinado: varias condiciones simultáneas (combustible + vías + calidad).
+export const sensibilidadCombinado = (params) =>
+  api.post('/api/sensibilidad/combinado', params)
+
+// Análisis narrativo del escenario con Google Gemini.
+export const analisisIaEscenario = (resultado) =>
+  api.post('/api/sensibilidad/analisis_ia', resultado)
 
 // ── Caché de rutas OSRM (Supabase) ───────────────────────────────────────────
 export const obtenerRutasCache = () => api.get('/api/rutas_cache')

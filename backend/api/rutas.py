@@ -24,6 +24,7 @@ Rutas disponibles:
   GET  /health                        → health check
 """
 
+import json
 import math
 from typing import Dict, Optional
 
@@ -31,6 +32,7 @@ import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+import config
 from algoritmos.optimizador_grafo import OptimizadorGrafo
 from algoritmos.validador import ValidadorRestricciones
 from database.supabase_client import (
@@ -173,6 +175,7 @@ class NodoInputDTO(BaseModel):
     tasa_merma: float = 0.0
     tasa_calidad: float = 1.0
     costo_operacion: float = 0.0
+    precio_venta: float = 250.0
 
 
 class AristaInputDTO(BaseModel):
@@ -198,6 +201,15 @@ class SensibilidadViaDTO(BaseModel):
 class SensibilidadCalidadDTO(BaseModel):
     id_acopio: str
     tasa_calidad_nueva: float = 0.2
+
+
+class EscenarioCombinadoDTO(BaseModel):
+    nombre: str = "Escenario personalizado"
+    combustible_activo: bool = False
+    combustible_pct: float = 15.0
+    combustible_departamento: str = "Meta"
+    vias_cerradas: list = []     # [{"id_origen": "X", "id_destino": "Y"}]
+    fallos_calidad: list = []    # [{"id_acopio": "X", "tasa_calidad_nueva": 0.2}]
 
 
 class RutasCacheDTO(BaseModel):
@@ -234,6 +246,7 @@ def _nodo_a_fila(d: NodoInputDTO) -> dict:
         "tasa_merma": merma,
         "tasa_calidad": d.tasa_calidad,
         "costo_operacion": d.costo_operacion,
+        "precio_venta": d.precio_venta,
     }
     if d.id:
         fila["id"] = d.id
@@ -256,6 +269,7 @@ def _fila_a_nodo(row: dict) -> dict:
         "tasa_merma": row.get("tasa_merma", 0.0),
         "tasa_calidad": row.get("tasa_calidad", 1.0),
         "costo_operacion": row.get("costo_operacion", 0.0),
+        "precio_venta": row.get("precio_venta", 250.0),
     }
 
 
@@ -582,15 +596,13 @@ def obtener_grafo_json():
 
 
 @router.get("/api/ruta_optima")
-def ruta_optima(origen: str, destino: str):
-    """Calcula la ruta de mínimo costo entre dos nodos usando Dijkstra."""
+def ruta_optima(destino: str, origen: Optional[str] = None):
+    """
+    Calcula la ruta óptima.
+      - Si solo se da 'destino': encuentra la cadena completa O→A→D más económica.
+      - Si se dan 'origen' y 'destino': Dijkstra directo entre los dos nodos (legacy).
+    """
     grafo = _cargar_grafo()
-
-    if origen not in grafo.nodos:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Nodo origen '{origen}' no existe.",
-        )
 
     if destino not in grafo.nodos:
         raise HTTPException(
@@ -599,26 +611,38 @@ def ruta_optima(origen: str, destino: str):
         )
 
     calc = DijkstraCalculator(grafo)
-    resultado = calc.ruta_con_detalle(origen, destino)
 
-    if not isinstance(resultado, dict):
-        raise HTTPException(
-            status_code=500,
-            detail="El cálculo de ruta óptima no retornó un resultado válido.",
+    if origen is None:
+        # Modo nuevo: solo destino → mejor cadena O→A→D.
+        resultado = calc.mejor_cadena_hacia_destino(destino)
+    else:
+        # Modo legacy: origen + destino → Dijkstra directo.
+        if origen not in grafo.nodos:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Nodo origen '{origen}' no existe.",
+            )
+        resultado = calc.ruta_con_detalle(origen, destino)
+
+    if not isinstance(resultado, dict) or not resultado.get("existe", False):
+        detalle = (
+            resultado.get("error", f"No existe ruta hacia '{destino}'.")
+            if isinstance(resultado, dict)
+            else "El cálculo de ruta óptima no retornó un resultado válido."
         )
+        raise HTTPException(status_code=404, detail=detalle)
 
     ruta = _obtener_ruta_desde_resultado(resultado)
-
     if not ruta or len(ruta) < 2:
         raise HTTPException(
             status_code=404,
-            detail=f"No existe una ruta disponible entre {origen} y {destino}.",
+            detail=f"No existe una ruta disponible hacia '{destino}'.",
         )
 
     if _contiene_no_finito(resultado):
         raise HTTPException(
             status_code=404,
-            detail=f"No existe una ruta con costo válido entre {origen} y {destino}.",
+            detail=f"La ruta encontrada hacia '{destino}' contiene costos inválidos.",
         )
 
     return _to_native(resultado)
@@ -709,6 +733,52 @@ def sensibilidad_todos():
     analizador = AnalizadorSensibilidad(grafo, ganancia_base)
 
     return _to_native(analizador.ejecutar_todos())
+
+
+@router.post("/api/sensibilidad/combinado")
+def sensibilidad_combinado(params: EscenarioCombinadoDTO):
+    """
+    Escenario What-If con múltiples condiciones simultáneas (combustible +
+    vías cerradas + fallos de calidad). Retorna el grafo con problemas y el
+    grafo optimizado.
+    """
+    grafo = _cargar_grafo()
+    analizador = AnalizadorSensibilidad(grafo, ganancia_base)
+
+    from sensibilidad.escenarios import ParametrosEscenario
+
+    p = ParametrosEscenario(
+        nombre=params.nombre,
+        combustible_activo=params.combustible_activo,
+        combustible_pct=params.combustible_pct,
+        combustible_departamento=params.combustible_departamento,
+        vias_cerradas=params.vias_cerradas,
+        fallos_calidad=params.fallos_calidad,
+    )
+    resultado = analizador.ejecutar_escenario_combinado(p)
+    _persistir_escenario("combinado", params.dict(), resultado)
+
+    return _to_native(resultado)
+
+
+@router.post("/api/sensibilidad/analisis_ia")
+def analisis_ia_escenario(resultado: dict):
+    """
+    Recibe el resultado de un escenario y retorna un análisis narrativo
+    generado con Google Gemini.
+    """
+    try:
+        from utils.ia_analista import analizar_escenario_con_ia
+
+        interpretacion = analizar_escenario_con_ia(resultado)
+    except Exception as e:
+        logger.error(f"Error en análisis IA: {e}")
+        interpretacion = f"Error en análisis de IA: {str(e)}"
+
+    return _to_native({
+        "interpretacion": interpretacion,
+        "modelo": config.GOOGLE_AI_MODEL,
+    })
 
 
 # ── Caché de rutas OSRM ───────────────────────────────────────────────────────

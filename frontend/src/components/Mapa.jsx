@@ -184,6 +184,12 @@ function PanelNodo({ nodo, onGuardar, onCerrar }) {
             <input type="number" min="0" className="bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
               value={d.demanda} onChange={n('demanda')} />
           </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-slate-400">Precio de venta ($/ton)</label>
+            <input type="number" min="0" step="1" className="bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-indigo-500"
+              value={d.precio_venta ?? 250} onChange={n('precio_venta')} />
+            <span className="text-[0.68rem] text-slate-500">Ingreso por tonelada entregada a este supermercado.</span>
+          </div>
         </>}
 
         {nodo.tipo === 'acopio' && <>
@@ -387,10 +393,25 @@ export default function Mapa({
   nodos      = [],
   aristas    = [],
   rutaDestacada = [],
+  aristasDestacadas = [],
   onNodoEdit    = null,
   onAristaEdit  = null,
 }) {
   const centro = [4.5709, -74.2973]
+
+  // ── Modo foco: al destacar una ruta (Dijkstra) o un conjunto de aristas
+  //    (Flujo Máximo), el resto de la red se atenúa para ver solo ese camino.
+  const aristasFoco = new Set(aristasDestacadas)
+  for (let i = 0; i < rutaDestacada.length - 1; i++) {
+    aristasFoco.add(`${rutaDestacada[i]}→${rutaDestacada[i + 1]}`)
+  }
+  const hayFoco = aristasFoco.size > 0
+  const nodosFoco = new Set(rutaDestacada)
+  aristasFoco.forEach(k => {
+    const [u, v] = k.split('→')
+    if (u) nodosFoco.add(u)
+    if (v) nodosFoco.add(v)
+  })
   const [roadPaths,    setRoadPaths]    = useState({})
   const [progreso,     setProgreso]     = useState(0)
   const [cacheLoaded,  setCacheLoaded]  = useState(false)
@@ -510,7 +531,15 @@ export default function Mapa({
           if (!path || path.length < 2) return null
           const enRiesgo = rutaEnRiesgo(a, nodos)
           const base = estiloArista(a)
-          const estilo = enRiesgo ? { ...base, color: COLOR_RIESGO, dashArray: '5 4', weight: Math.max(base.weight, 3), opacity: 0.9 } : base
+          let estilo = enRiesgo ? { ...base, color: COLOR_RIESGO, dashArray: '5 4', weight: Math.max(base.weight, 3), opacity: 0.9 } : base
+          // Modo foco: la arista destacada se enfatiza; las demás se atenúan.
+          if (hayFoco) {
+            if (aristasFoco.has(key)) {
+              estilo = { ...estilo, weight: Math.max(estilo.weight, 5.5), opacity: 1 }
+            } else {
+              estilo = { color: '#94a3b8', weight: 1.2, opacity: 0.15, dashArray: null }
+            }
+          }
           const nO = nodos.find(n => n.id === origenId)
           const nD = nodos.find(n => n.id === destinoId)
           return (
@@ -546,14 +575,17 @@ export default function Mapa({
           const lng = nodo.lng ?? nodo.longitud
           if (lat === undefined || lng === undefined) return null
           const calidad = nodo.tasa_calidad ?? 1
+          const atenuado = hayFoco && !nodosFoco.has(nodo.id)
           return (
             <CircleMarker key={nodo.id} center={[lat, lng]}
               radius={RADIO_NODO[nodo.tipo] || 7}
+              opacity={atenuado ? 0.25 : 1}
               pathOptions={{
                 fillColor:   COLOR_NODO[nodo.tipo] || '#334155',
-                fillOpacity: 1,
+                fillOpacity: atenuado ? 0.2 : 1,
                 color:       nodo.tipo === 'acopio' && calidad < 0.5 ? '#facc15' : '#ffffff',
                 weight:      nodo.tipo === 'acopio' && calidad < 0.5 ? 4 : 2.5,
+                opacity:     atenuado ? 0.25 : 1,
               }}
               eventHandlers={{ click: (e) => { L.DomEvent.stopPropagation(e); setPanel({ tipo: 'nodo', datos: nodo }) } }}>
               <Tooltip direction="top" offset={[0, -10]}>

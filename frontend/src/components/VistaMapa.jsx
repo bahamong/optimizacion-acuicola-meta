@@ -5,6 +5,8 @@ import {
   FaBox,
   FaInfoCircle,
   FaMapMarkerAlt,
+  FaWater,
+  FaTimes,
 } from "react-icons/fa";
 import Mapa from "./Mapa.jsx";
 
@@ -12,6 +14,8 @@ export default function VistaMapa({
   grafo,
   metricas,
   rutaDestacada = [],
+  aristasDestacadas = [],
+  onLimpiarFoco = null,
   onNodoEdit = null,
   onAristaEdit = null,
 }) {
@@ -34,11 +38,35 @@ export default function VistaMapa({
   const rutasConFlujo = aristas.filter((a) => (a.flujo || 0) > 0).length;
   const sinOptimizar = rutasConFlujo === 0;
 
+  const hayFoco = rutaDestacada.length > 0 || aristasDestacadas.length > 0;
+
   return (
     <div className="flex flex-col gap-2 h-full">
-      {rutaDestacada.length > 0 && (
+      {hayFoco && (
         <div className="flex items-center gap-2 bg-violet-50 border border-violet-200 rounded-lg px-4 py-2 text-sm text-violet-700 flex-shrink-0">
-          <FaMapMarkerAlt /> Ruta óptima (Dijkstra): {rutaDestacada.join(" → ")}
+          {rutaDestacada.length > 0 ? (
+            <>
+              <FaMapMarkerAlt className="flex-shrink-0" />
+              <span className="truncate">
+                Cadena óptima (Dijkstra): {rutaDestacada.join(" → ")}
+              </span>
+            </>
+          ) : (
+            <>
+              <FaWater className="flex-shrink-0" />
+              <span className="truncate">
+                Flujo máximo: {aristasDestacadas.length} ruta(s) con flujo resaltadas
+              </span>
+            </>
+          )}
+          {onLimpiarFoco && (
+            <button
+              onClick={onLimpiarFoco}
+              className="ml-auto flex items-center gap-1 px-2 py-1 rounded bg-white border border-violet-200 text-violet-700 hover:bg-violet-100 text-xs font-semibold flex-shrink-0"
+            >
+              <FaTimes /> Ver toda la red
+            </button>
+          )}
         </div>
       )}
 
@@ -48,6 +76,7 @@ export default function VistaMapa({
           nodos={nodos}
           aristas={aristas}
           rutaDestacada={rutaDestacada}
+          aristasDestacadas={aristasDestacadas}
           onNodoEdit={onNodoEdit}
           onAristaEdit={onAristaEdit}
         />

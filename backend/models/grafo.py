@@ -120,6 +120,7 @@ class GrafoRed:
                     "tasa_merma": n.tasa_merma,
                     "tasa_calidad": n.tasa_calidad,
                     "costo_operacion": n.costo_operacion,
+                    "precio_venta": n.precio_venta,
                 }
                 for n in self.nodos.values()
             ],
