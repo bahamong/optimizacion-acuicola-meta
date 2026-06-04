@@ -125,7 +125,7 @@ class AnalizadorSensibilidad:
             if en_meta:
                 costo_anterior = arista.costo_transporte
                 arista.costo_transporte = round(costo_anterior * factor, 4)
-                grafo_mod._nx[u][v]["weight"] = arista.costo_transporte
+                grafo_mod._nx[u][v]["weight"] = arista.costo_total_unitario
                 rutas_afectadas.append({
                     "ruta": f"{u}→{v}",
                     "costo_anterior": costo_anterior,

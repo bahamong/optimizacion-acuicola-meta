@@ -99,7 +99,7 @@ class DijkstraCalculator:
 
         for id_acopio in acopios_conectados_al_destino:
             arista_ad = self.grafo.obtener_arista(id_acopio, id_destino)
-            costo_ultima_milla = arista_ad.costo_transporte if arista_ad else float("inf")
+            costo_ultima_milla = arista_ad.costo_total_unitario if arista_ad else float("inf")
             if costo_ultima_milla == float("inf"):
                 continue
 
@@ -134,11 +134,17 @@ class DijkstraCalculator:
 
         # Construir detalle tramo por tramo.
         detalle = []
+        distancia_total = 0.0
+        aristas_generadas = 0
         for i in range(len(mejor_ruta) - 1):
             u, v = mejor_ruta[i], mejor_ruta[i + 1]
             arista = self.grafo.obtener_arista(u, v)
             nodo_u = self.grafo.obtener_nodo(u)
             nodo_v = self.grafo.obtener_nodo(v)
+            if arista:
+                distancia_total += arista.distancia
+                if arista.generada_automaticamente:
+                    aristas_generadas += 1
             detalle.append({
                 "de": u,
                 "nombre_de": nodo_u.nombre if nodo_u else u,
@@ -147,9 +153,13 @@ class DijkstraCalculator:
                 "nombre_a": nodo_v.nombre if nodo_v else v,
                 "tipo_a": nodo_v.tipo.value if nodo_v else "?",
                 "costo_unitario": round(arista.costo_transporte, 4) if arista else 0.0,
+                "costo_total_unitario": round(arista.costo_total_unitario, 4) if arista else 0.0,
                 "distancia_km": round(arista.distancia, 2) if arista else 0.0,
                 "capacidad": arista.capacidad if arista else 0.0,
                 "estado": arista.estado if arista else "activa",
+                "fuente_distancia": arista.fuente_distancia if arista else None,
+                "generada_automaticamente": arista.generada_automaticamente if arista else False,
+                "fuente_arista": arista.fuente_arista if arista else None,
             })
 
         return {
@@ -159,10 +169,18 @@ class DijkstraCalculator:
             "origen_optimo": mejor_origen,
             "acopio_intermedio": mejor_acopio,
             "ruta": mejor_ruta,
+            "distancia_total": round(distancia_total, 2),
             "costo_total": round(mejor_costo, 4),
+            "costo_por_tramo": detalle,
             "saltos": len(mejor_ruta) - 1,
             "algoritmo": "bellman_ford" if usa_bellman else "dijkstra",
             "cadena": f"{mejor_origen} → {mejor_acopio} → {id_destino}",
+            "justificacion": (
+                "Se evaluaron todas las cadenas validas Origen->Acopio->Destino "
+                "y se selecciono la de menor costo total ajustado."
+            ),
+            "aristas_generadas_automaticamente": aristas_generadas,
+            "aristas_desde_base_datos": (len(mejor_ruta) - 1) - aristas_generadas,
             "detalle": detalle,
         }
 
@@ -185,24 +203,32 @@ class DijkstraCalculator:
                 "detalle": [],
             }
         detalle = []
+        distancia_total = 0.0
         for i in range(len(path) - 1):
             arista = self.grafo.obtener_arista(path[i], path[i + 1])
             nodo_de = self.grafo.obtener_nodo(path[i])
             nodo_a = self.grafo.obtener_nodo(path[i + 1])
+            if arista:
+                distancia_total += arista.distancia
             detalle.append({
                 "de": path[i],
                 "nombre_de": nodo_de.nombre if nodo_de else path[i],
                 "a": path[i + 1],
                 "nombre_a": nodo_a.nombre if nodo_a else path[i + 1],
                 "costo_unitario": arista.costo_transporte if arista else 0.0,
+                "costo_total_unitario": arista.costo_total_unitario if arista else 0.0,
                 "distancia_km": arista.distancia if arista else 0.0,
                 "capacidad": arista.capacidad if arista else 0.0,
+                "fuente_distancia": arista.fuente_distancia if arista else None,
+                "generada_automaticamente": arista.generada_automaticamente if arista else False,
+                "fuente_arista": arista.fuente_arista if arista else None,
             })
         return {
             "existe": True,
             "origen": origen,
             "destino": destino,
             "ruta": path,
+            "distancia_total": round(distancia_total, 2),
             "costo_total": round(costo_total, 4),
             "saltos": len(path) - 1,
             "detalle": detalle,
@@ -226,6 +252,9 @@ class DijkstraCalculator:
                 "capacidad": arista.capacidad,
                 "utilizacion": round(arista.utilizacion, 4),
                 "costo": arista.costo_transporte,
+                "costo_total": arista.costo_total_unitario,
+                "fuente_distancia": arista.fuente_distancia,
+                "generada_automaticamente": arista.generada_automaticamente,
             })
         return sorted(saturaciones, key=lambda x: x["utilizacion"], reverse=True)[:top_n]
 

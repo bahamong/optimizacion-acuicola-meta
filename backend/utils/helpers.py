@@ -13,15 +13,14 @@ La tasa de merma de un acopio se deriva de su tasa de calidad.
 
 import math
 
-from models.arista import Arista
+import config
+from grafos.generador_aristas import generar_aristas_automaticas
 from models.grafo import GrafoRed
 from models.nodo import Nodo, TipoNodo
 
-# Factor que aproxima la distancia por carretera a partir de la distancia recta
-FACTOR_VIAL = 1.30
-# Costo de transporte: base + proporcional a la distancia ($/ton)
-COSTO_BASE = 2.0
-COSTO_POR_KM = 0.08
+# Alias historicos; la fuente real esta en config.py.
+FACTOR_VIAL = config.FACTOR_VIAL
+COSTO_POR_KM = config.COSTO_POR_KM
 
 
 def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -40,12 +39,12 @@ def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 def distancia_vial(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Distancia aproximada por carretera (km), redondeada."""
-    return round(haversine_km(lat1, lng1, lat2, lng2) * FACTOR_VIAL, 1)
+    return round(haversine_km(lat1, lng1, lat2, lng2) * config.FACTOR_VIAL, 1)
 
 
 def costo_desde_distancia(distancia_km: float) -> float:
     """Costo de transporte ($/ton) derivado de la distancia."""
-    return round(COSTO_BASE + distancia_km * COSTO_POR_KM, 2)
+    return round(distancia_km * config.COSTO_POR_KM, 2)
 
 
 def merma_desde_calidad(tasa_calidad: float) -> float:
@@ -103,33 +102,11 @@ def construir_red_acuicola() -> GrafoRed:
     # ── Intentar cargar aristas desde Supabase ─────────────────────
     try:
         aristas_rows = sb.table("aristas").select("*").execute()
-        if not aristas_rows.data:
-            raise ValueError("No se encontraron aristas en Supabase")
+        reglas_manuales = aristas_rows.data or []
+    except Exception:
+        reglas_manuales = []
 
-        for a in aristas_rows.data:
-            # Si no hay distancia o es 0, la calculamos desde los nodos (solo si ya están cargados)
-            dist = a.get("distancia", 0.0)
-            if not dist or dist <= 0:
-                no = grafo.obtener_nodo(a["id_origen"])
-                nd = grafo.obtener_nodo(a["id_destino"])
-                if no and nd:
-                    dist = distancia_vial(
-                        no.latitud, no.longitud, nd.latitud, nd.longitud
-                    )
-
-            arista = Arista(
-                id_origen=a["id_origen"],
-                id_destino=a["id_destino"],
-                costo_transporte=a["costo_transporte"],
-                capacidad=a["capacidad"],
-                distancia=dist,
-                estado=a.get("estado", "activa"),
-                umbral_calidad=a.get("umbral_calidad", 0.0),
-            )
-            grafo.agregar_arista(arista)
-    except Exception as e:
-        # Si falla la carga de aristas, devolvemos la red hardcodeada completa
-        return _construir_red_acuicola_hardcoded()
+    generar_aristas_automaticas(grafo, reglas_manuales)
 
     return grafo
 
@@ -502,66 +479,7 @@ def _construir_red_acuicola_hardcoded() -> GrafoRed:
     for n in origenes + acopios + destinos:
         grafo.agregar_nodo(n)
 
-    # ── ARISTAS (origen, destino, capacidad) — distancia y costo automáticos ──
-    conexiones = [
-        # Origen → Acopio
-        ("O1", "A2", 80),
-        ("O1", "A9", 50),
-        ("O2", "A2", 70),
-        ("O2", "A9", 40),
-        ("O3", "A2", 60),
-        ("O3", "A5", 50),
-        ("O3", "A6", 50),
-        ("O4", "A3", 60),
-        ("O4", "A1", 50),
-        ("O5", "A3", 70),
-        ("O5", "A1", 60),
-        ("O6", "A8", 70),
-        ("O6", "A10", 60),
-        ("O6", "A1", 50),
-        # Acopio → Acopio (redistribución)
-        ("A2", "A1", 120),
-        ("A5", "A2", 60),
-        ("A6", "A2", 50),
-        ("A9", "A2", 50),
-        ("A1", "A3", 80),
-        ("A1", "A7", 80),
-        ("A1", "A8", 70),
-        ("A7", "A4", 50),
-        ("A10", "A8", 50),
-        # Acopio → Destino (última milla)
-        ("A1", "D1", 30),
-        ("A1", "D2", 25),
-        ("A1", "D3", 35),
-        ("A1", "D4", 20),
-        ("A1", "D5", 25),
-        ("A1", "D6", 22),
-        ("A2", "D7", 20),
-        ("A2", "D8", 18),
-        ("A2", "D9", 25),
-        ("A2", "D10", 15),
-        ("A3", "D11", 20),
-        ("A3", "D12", 18),
-        ("A4", "D13", 14),
-        ("A4", "D14", 15),
-        ("A5", "D15", 16),
-        ("A5", "D16", 13),
-        ("A6", "D17", 15),
-        ("A6", "D18", 12),
-        ("A7", "D19", 14),
-        ("A7", "D20", 16),
-        ("A3", "D21", 14),
-        ("A3", "D22", 15),  # Soacha → Fusagasugá
-        ("A10", "D23", 18),  # Madrid → Facatativá
-        ("A3", "D24", 12),  # Soacha → Girardot
-        ("A9", "D25", 13),  # Cumaral → Cumaral
-    ]
-
-    for u, v, cap in conexiones:
-        nu, nv = grafo.obtener_nodo(u), grafo.obtener_nodo(v)
-        dist = distancia_vial(nu.latitud, nu.longitud, nv.latitud, nv.longitud)
-        costo = costo_desde_distancia(dist)
-        grafo.agregar_arista(Arista(u, v, costo, cap, dist))
+    generar_aristas_automaticas(grafo, [])
 
     return grafo
 
@@ -569,7 +487,7 @@ def _construir_red_acuicola_hardcoded() -> GrafoRed:
 def flujos_a_dict(grafo: GrafoRed) -> dict:
     """Convierte los flujos actuales del grafo a un dict serializable."""
     return {
-        f"{a.id_origen}→{a.id_destino}": round(a.flujo_actual, 4)
+        f"{a.id_origen}\u2192{a.id_destino}": round(a.flujo_actual, 4)
         for a in grafo.aristas.values()
     }
 
@@ -583,7 +501,7 @@ def calcular_metricas_resultado(grafo: GrafoRed, resultado_grafo: dict) -> dict:
     demanda_cumplida = 0.0
     for destino in destinos:
         flujo_recibido = sum(
-            v for k, v in flujos.items() if k.endswith(f"→{destino.id}")
+            v for k, v in flujos.items() if k.endswith(f"\u2192{destino.id}")
         )
         demanda_cumplida += min(flujo_recibido, destino.demanda)
 

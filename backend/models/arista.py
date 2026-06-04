@@ -38,6 +38,10 @@ class Arista:
     flujo_actual: float = 0.0
     tiempo_transito: float = 0.0  # horas (calculado)
     velocidad: float = 65.0       # km/h promedio
+    fuente_distancia: str = "manual"
+    generada_automaticamente: bool = False
+    factor_costo: float = 1.0
+    penalizacion: float = 0.0
 
     @property
     def multiplicador_estado(self) -> float:
@@ -53,7 +57,13 @@ class Arista:
     @property
     def costo_total_unitario(self) -> float:
         """Costo total por tonelada ajustado según el estado de la vía (no editable)."""
-        return costo_total_segun_estado(self.costo_transporte, self.estado)
+        costo_ajustado = self.costo_transporte * self.factor_costo + self.penalizacion
+        return costo_total_segun_estado(costo_ajustado, self.estado)
+
+    @property
+    def fuente_arista(self) -> str:
+        """Origen logico de la arista dentro del grafo en memoria."""
+        return "generada" if self.generada_automaticamente else "base_datos"
 
     @property
     def costo_total(self) -> float:
@@ -67,7 +77,7 @@ class Arista:
 
     @property
     def disponible(self) -> bool:
-        return self.estado == "activa"
+        return self.estado != "bloqueada"
 
     def calcular_tiempo_transito(self) -> float:
         if self.velocidad > 0:
@@ -77,6 +87,10 @@ class Arista:
     def validar(self) -> None:
         if self.costo_transporte < 0:
             raise ValueError(f"Costo negativo en arista {self.id_origen}→{self.id_destino}")
+        if self.factor_costo <= 0:
+            raise ValueError(f"Factor de costo no positivo en arista {self.id_origen}â†’{self.id_destino}")
+        if self.costo_transporte * self.factor_costo + self.penalizacion < 0:
+            raise ValueError(f"Costo ajustado negativo en arista {self.id_origen}â†’{self.id_destino}")
         if self.capacidad <= 0:
             raise ValueError(f"Capacidad no positiva en arista {self.id_origen}→{self.id_destino}")
         if self.distancia <= 0:

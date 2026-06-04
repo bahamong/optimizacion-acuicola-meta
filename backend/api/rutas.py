@@ -187,6 +187,8 @@ class AristaInputDTO(BaseModel):
     distancia: float = 0.0
     estado: str = "activa"
     umbral_calidad: float = 0.0
+    factor_costo: float = 1.0
+    penalizacion: float = 0.0
 
 
 class SensibilidadCombustibleDTO(BaseModel):
@@ -224,7 +226,7 @@ def _cargar_grafo() -> GrafoRed:
     if grafo is None or len(grafo.nodos) == 0:
         raise HTTPException(
             status_code=400,
-            detail="No hay datos en la base de datos. Crea nodos y aristas primero.",
+            detail="No hay nodos en la base de datos. Crea nodos primero; las rutas se generan automaticamente.",
         )
     return grafo
 
@@ -283,6 +285,10 @@ def _arista_a_fila(d: AristaInputDTO) -> dict:
         "distancia": d.distancia,
         "estado": d.estado,
         "umbral_calidad": d.umbral_calidad,
+        "factor_costo": d.factor_costo,
+        "penalizacion": d.penalizacion,
+        "fuente_distancia": "manual",
+        "generada_automaticamente": False,
     }
 
 
@@ -290,16 +296,23 @@ def _fila_a_arista(row: dict) -> dict:
     """Convierte una fila de la tabla `aristas` al formato del frontend."""
     costo_base = row.get("costo_transporte", 0.0)
     estado = row.get("estado", "activa")
+    factor_costo = row.get("factor_costo", 1.0) or 1.0
+    penalizacion = row.get("penalizacion", 0.0) or 0.0
+    costo_ajustado = costo_base * factor_costo + penalizacion
     return {
         "id": row.get("id"),
         "origen": row.get("id_origen"),
         "destino": row.get("id_destino"),
         "costo": costo_base,  # costo base (editable)
-        "costo_total": costo_total_segun_estado(costo_base, estado),  # ajustado por estado (no editable)
+        "costo_total": costo_total_segun_estado(costo_ajustado, estado),  # ajustado por estado (no editable)
         "capacidad": row.get("capacidad", 0.0),
         "distancia": row.get("distancia", 0.0),
         "estado": estado,
         "umbral_calidad": row.get("umbral_calidad", 0.0),
+        "factor_costo": factor_costo,
+        "penalizacion": penalizacion,
+        "fuente_distancia": row.get("fuente_distancia", "manual"),
+        "generada_automaticamente": row.get("generada_automaticamente", False),
     }
 
 
@@ -332,7 +345,7 @@ def _aplicar_flujos(grafo: GrafoRed) -> None:
     """Superpone los flujos de la última optimización sobre el grafo recargado,
     para que /api/grafo_json devuelva flujo y utilización por arista."""
     for (u, v), arista in grafo.aristas.items():
-        arista.flujo_actual = flujos_ultimos.get(f"{u}→{v}", 0.0)
+        arista.flujo_actual = flujos_ultimos.get(f"{u}\u2192{v}", 0.0)
 
 
 # ── Endpoints base ────────────────────────────────────────────────────────────
@@ -484,7 +497,7 @@ def optimizar():
 
         # Guardar los flujos para superponerlos al recargar el grafo en el mapa.
         flujos_ultimos = {
-            f"{a.id_origen}→{a.id_destino}": a.flujo_actual
+            f"{a.id_origen}\u2192{a.id_destino}": a.flujo_actual
             for a in grafo.aristas.values()
         }
 

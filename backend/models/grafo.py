@@ -21,6 +21,7 @@ class GrafoRed:
         self.nodos: Dict[str, Nodo] = {}
         self.aristas: Dict[Tuple[str, str], Arista] = {}
         self._nx: nx.DiGraph = nx.DiGraph()
+        self.metadatos: Dict[str, object] = {}
 
     # ── Construcción ──────────────────────────────────────────────────────────
 
@@ -51,6 +52,8 @@ class GrafoRed:
             weight=arista.costo_total_unitario,  # costo ajustado por el estado de la vía
             capacidad=arista.capacidad,
             distancia=arista.distancia,
+            fuente_distancia=arista.fuente_distancia,
+            generada_automaticamente=arista.generada_automaticamente,
         )
 
     # ── Consultas ─────────────────────────────────────────────────────────────
@@ -136,9 +139,15 @@ class GrafoRed:
                     "utilizacion": round(a.utilizacion, 4),
                     "estado": a.estado,
                     "umbral_calidad": a.umbral_calidad,
+                    "fuente_distancia": a.fuente_distancia,
+                    "generada_automaticamente": a.generada_automaticamente,
+                    "fuente_arista": a.fuente_arista,
+                    "factor_costo": a.factor_costo,
+                    "penalizacion": a.penalizacion,
                 }
                 for a in self.aristas.values()
             ],
+            "metadatos": self.metadatos,
         }
 
     def __repr__(self) -> str:
